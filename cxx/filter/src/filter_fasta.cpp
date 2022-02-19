@@ -49,7 +49,14 @@ void filter_fasta_search_enzyme(const FASTA_FILTER_WORK_ARGS &args)
         //Append the name.
         enzyme_poses->seq_names = static_cast<char **>(realloc(enzyme_poses->seq_names, sizeof(char *) * (1 + ref_id)));
         enzyme_poses->seq_names[ref_id] = static_cast<char *>(malloc(args.seq_name_length + 1));
-        strncpy(enzyme_poses->seq_names[ref_id], args.seq_name, args.seq_name_length + 1);
+#ifdef _MSC_VER
+        strncpy_s(enzyme_poses->seq_names[ref_id], args.seq_name_length+1, args.seq_name, args.seq_name_length+1);
+#else
+        strncpy(enzyme_poses->seq_names[ref_id], args.seq_name, args.seq_name_length+1);
+#endif
+        //Record the name length.
+        enzyme_poses->seq_name_length = static_cast<size_t *>(realloc(enzyme_poses->seq_name_length, sizeof(size_t) * (1 + ref_id)));
+        enzyme_poses->seq_name_length[ref_id] = args.seq_name_length;
         //Record the sequence length.
         enzyme_poses->seq_length = static_cast<size_t *>(realloc(enzyme_poses->seq_length, sizeof(size_t) * (1 + ref_id)));
         enzyme_poses->seq_length[ref_id] = args.seq_size;
@@ -64,22 +71,12 @@ void filter_fasta_search_enzyme(const FASTA_FILTER_WORK_ARGS &args)
     }
 }
 
-void filter_fasta_dump_enzyme_count(const char *filepath, const FASTA_ENZYME_POSES &poses)
+void filter_fasta_dump_node(FILE *graph_file, const FASTA_ENZYME_POSES &poses)
 {
-#ifdef _MSC_VER
-    FILE *enz_count_file = NULL;
-    fopen_s(&enz_count_file, filepath, "w");
-#else
-    FILE *enz_count_file = fopen(filepath, "w");
-#endif
     //Loop and write the file.
-    fprintf(enz_count_file, "%zu\n", poses.seq_total);
+    fprintf(graph_file, "*Vertices %zu\n", poses.seq_total);
     for(size_t i=0; i<poses.seq_total; ++i)
     {
-        fprintf(enz_count_file, "%s\t%zu\t%zu\n",
-                poses.seq_names[i],
-                poses.enz_range_size[i],
-                poses.seq_length[i]);
+        fprintf(graph_file, "%zu \"%s\"\n", i+1, poses.seq_names[i]);
     }
-    fclose(enz_count_file);
 }

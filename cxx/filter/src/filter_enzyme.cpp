@@ -30,7 +30,7 @@ void filter_enzyme_formalize(char *enzyme, const char **nuc_seq, int *nuc_seq_si
     if(known_finder != known_enzyme_alias.end())
     {
         (*nuc_seq) = known_finder->second;
-        (*nuc_seq_size) = strlen(*nuc_seq);
+        (*nuc_seq_size) = static_cast<int>(strlen(*nuc_seq));
         return;
     }
     //Or else we have to check the enzyme.
@@ -46,5 +46,5 @@ void filter_enzyme_formalize(char *enzyme, const char **nuc_seq, int *nuc_seq_si
         }
     }
     *nuc_seq = enzyme;
-    *nuc_seq_size = length;
+    *nuc_seq_size = static_cast<int>(length);
 }

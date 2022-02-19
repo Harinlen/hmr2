@@ -1,0 +1,207 @@
+#include <cstdlib>
+#include <cstdio>
+#include <cstring>
+
+#include "hmr_bam.h"
+#include "hmr_ui.h"
+#include "filter_fasta_type.h"
+
+#include "filter_bam.h"
+
+#define PAIR_INVALID 0xFFFFFFFFFFFFFFFF
+
+typedef struct BAM_PAIR_DETAIL
+{
+    int32_t ref_id;
+    int32_t ref_pos;
+} BAM_PAIR_DETAIL;
+
+typedef union BAM_PAIR_INFO
+{
+    BAM_PAIR_DETAIL detail;
+    uint64_t data;
+} BAM_PAIR_INFO;
+
+typedef struct BAM_PAIR_INDEX
+{
+    uint64_t paired_data;
+    size_t key_id;
+} BAM_PAIR_INDEX;
+
+typedef struct BAM_EDGE_DETAIL
+{
+    int32_t edge_start;
+    int32_t edge_end;
+} BAM_EDGE_DETAIL;
+
+typedef union BAM_EDGE_INFO
+{
+    BAM_EDGE_DETAIL detail;
+    uint64_t data;
+} BAM_EDGE_INFO;
+
+typedef struct BAM_INDEX
+{
+    int mapq;
+    uint32_t n_ref, ref_ptr;
+    int32_t* ref_id_map;
+    const FASTA_ENZYME_POSES *poses;
+    std::unordered_map<uint64_t, size_t> *edges;
+    std::unordered_map<uint64_t, BAM_PAIR_INDEX> pair_map;
+} BAM_INDEX;
+
+void index_header(char *text, uint32_t l_text, void *user)
+{
+    (void)text;
+    (void)l_text;
+    (void)user;
+}
+
+void index_n_ref(uint32_t n_ref, void *user)
+{
+    BAM_INDEX *index = static_cast<BAM_INDEX *>(user);
+    //Assign the n_ref.
+    index->n_ref = n_ref;
+    index->ref_ptr = 0;
+    //Prepare the index mapping array.
+    index->ref_id_map = static_cast<int32_t *>(malloc(n_ref * sizeof(int32_t)));
+}
+
+int32_t search_ref(char *name, uint32_t l_name, const FASTA_ENZYME_POSES *poses)
+{
+    for(size_t i=0; i<poses->seq_total; ++i)
+    {
+        if(l_name-1 != poses->seq_name_length[i])
+        {
+            continue;
+        }
+        //Compare the name length.
+        if(strncmp(name, poses->seq_names[i], l_name-1) == 0)
+        {
+            return static_cast<int32_t>(i);
+        }
+    }
+    return -1;
+}
+
+void index_ref(char *name, uint32_t l_name, uint32_t l_ref, void *user)
+{
+    (void)l_ref;
+    BAM_INDEX *index = static_cast<BAM_INDEX *>(user);
+    //Search the name in the poses.
+    index->ref_id_map[index->ref_ptr++] = search_ref(name, l_name, index->poses);
+}
+
+inline bool index_in_range(size_t pos, ENZYME_RANGE *ranges, size_t range_size)
+{
+    for(size_t i=0; i<range_size; ++i)
+    {
+        if(pos >= ranges[i].start && pos <= ranges[i].end)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void index_block(size_t block_id, char *block, uint32_t block_size, void *user)
+{
+    (void)block_size;
+    BAM_INDEX *index = static_cast<BAM_INDEX *>(user);
+    //Recast the block data into header.
+    BAM_BLOCK_HEADER *header = reinterpret_cast<BAM_BLOCK_HEADER *>(block);
+    //Check map quality.
+    if(header->mapq < index->mapq || header->mapq == 255)
+    {
+        return;
+    }
+    //Check whether the header mapping id is valid, and in enzyme range.
+    int32_t my_ref_id = index->ref_id_map[header->refID],
+            paired_ref_id = index->ref_id_map[header->next_refID];
+    if(my_ref_id == -1 || paired_ref_id == -1 ||
+            !index_in_range(header->pos,
+                            index->poses->enz_ranges[my_ref_id],
+                            index->poses->enz_range_size[my_ref_id]))
+    {
+        return;
+    }
+    //Check whether this pair contains in the data.
+    BAM_PAIR_INFO my_info, paired_info;
+    my_info.detail = BAM_PAIR_DETAIL {my_ref_id, header->pos};
+    paired_info.detail = BAM_PAIR_DETAIL {paired_ref_id, header->next_pos};
+    auto pair_result = index->pair_map.find(paired_info.data);
+    if(pair_result == index->pair_map.end())
+    {
+        //No paired result, insert mine data to the index.
+        index->pair_map.insert(std::make_pair(
+                                   my_info.data,
+                                   BAM_PAIR_INDEX {paired_info.data, block_id}));
+    }
+    else
+    {
+        //Check whether the paired result is the current read.
+        if(pair_result->second.paired_data == my_info.data)
+        {
+            //Matched, send the data to write list, and invalid the record.
+            BAM_EDGE_INFO edge_info;
+            if(my_ref_id < paired_ref_id)
+            {
+                edge_info.detail.edge_start = my_ref_id;
+                edge_info.detail.edge_end = paired_ref_id;
+            }
+            else
+            {
+                edge_info.detail.edge_start = paired_ref_id;
+                edge_info.detail.edge_end = my_ref_id;
+            }
+            //Check whether the data exist in the edge map.
+            auto edge_result = index->edges->find(edge_info.data);
+            if(edge_result == index->edges->end())
+            {
+                //Failed to find this edge, push a new edge.
+                index->edges->insert(std::make_pair(edge_info.data, 1));
+            }
+            else
+            {
+                ++edge_result->second;
+            }
+            //Replace the mapping id.
+            pair_result->second.paired_data = PAIR_INVALID;
+            pair_result->second.key_id = PAIR_INVALID;
+        }
+    }
+}
+
+std::unordered_map<uint64_t, size_t> filter_bam_statistic(const char *source, const FASTA_ENZYME_POSES &poses,
+                                   int mapq, int threads)
+{
+    std::unordered_map<uint64_t, size_t> edges;
+    BAM_PARSER filter {index_header, index_n_ref, index_ref, index_block};
+    BAM_INDEX index;
+    index.mapq = mapq;
+    index.poses = &poses;
+    index.edges = &edges;
+    //Load the BAM file with using the filter parser.
+    hmr_bam_load(source, &filter, threads, &index);
+    return edges;
+}
+
+void filter_bam_dump_edge(FILE *graph_file, const std::unordered_map<uint64_t, size_t> &raw_edges, const FASTA_ENZYME_POSES &poses)
+{
+    fprintf(graph_file, "*arcs\n");
+    //Loop for each edge.
+    for(auto &edge : raw_edges)
+    {
+        //Parse the edge information.
+        BAM_EDGE_INFO edge_info;
+        edge_info.data = edge.first;
+        //Write the index of the edge, which should increase 1.
+        //Calculate the weighted edge value.
+        fprintf(graph_file, "%d %d %.15lf\n",
+                edge_info.detail.edge_start+1,
+                edge_info.detail.edge_end+1,
+                static_cast<double>(edge.second) /
+                    static_cast<double>(poses.enz_range_size[edge_info.detail.edge_start] +
+                    poses.enz_range_size[edge_info.detail.edge_end]));
+    }
+}

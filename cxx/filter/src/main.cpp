@@ -3,16 +3,15 @@
 
 #include "hmr_args.h"
 #include "hmr_args_type.h"
+#include "hmr_ui.h"
 #include "filter_enzyme.h"
 #include "filter_fasta_type.h"
 #include "filter_fasta.h"
-#include "hmr_ui.h"
+#include "filter_bam.h"
 
 #include "hmr_fasta.h"
 
 extern HMR_ARGS opts;
-
-static const char *edge_suffix = ".edge";
 
 int main(int argc, char *argv[])
 {
@@ -20,6 +19,7 @@ int main(int argc, char *argv[])
     parse_arguments(argc, argv);
     //Print the current working parameter.
     time_print("Execution configuration:");
+    time_print_int("\tMinimum Map Quality: %d", opts.mapq);
     time_print_int("\tThreads: %d", opts.threads);
     //Read the FASTA file and find the enzyme.
     const char *nuc_seq = NULL;
@@ -36,7 +36,7 @@ int main(int argc, char *argv[])
         //Prepare the workers.
         FILTER_WORKERS workers(filter_fasta_search_enzyme);
         fasta_user.workers = &workers;
-        fasta_user.enzyme_poses = FASTA_ENZYME_POSES {0, NULL, NULL, NULL, NULL};
+        fasta_user.enzyme_poses = FASTA_ENZYME_POSES {0, NULL, NULL, NULL, NULL, NULL};
         //Start parsing FASTA.
         fasta_parser(opts.fasta, filter_fasta_push_work, &fasta_user);
         //Wait until all the workers are completed.
@@ -44,14 +44,24 @@ int main(int argc, char *argv[])
     }
     time_print_size("Enzyme index built, total sequenece: %d", enzyme_poses.seq_total);
     //Dump the enzyme count file.
-    {
-        char enzyme_count_path[2048];
-        sprintf(enzyme_count_path, "%s.enz_count", opts.fasta);
-        time_print_str("Dump enzyme index to %s", enzyme_count_path);
-        filter_fasta_dump_enzyme_count(enzyme_count_path, enzyme_poses);
-        time_print("Enzyme index dumped.");
-    }
+#ifdef _MSC_VER
+    FILE *output_file = NULL;
+    fopen_s(&output_file, opts.output, "w");
+#else
+    FILE *output_file = fopen(opts.output, "w");
+#endif
+    time_print_str("Dump node info to %s", opts.output);
+    filter_fasta_dump_node(output_file, enzyme_poses);
+    time_print("Graph nodes dump completed.");
     //Read the filter the mapping file.
     time_print_str("Filtering mapping file %s", opts.mapping);
+    std::unordered_map<uint64_t, size_t> raw_edges =
+            filter_bam_statistic(opts.mapping, fasta_user.enzyme_poses, opts.mapq, opts.threads);
+    time_print_size("Filter complete, %zu edges generated.", raw_edges.size());
+    //Based on the node and raw edges, dump the weighted edges.
+    time_print_str("Dump edge info to %s", opts.output);
+    filter_bam_dump_edge(output_file, raw_edges, fasta_user.enzyme_poses);
+    time_print("Graph edges dump completed.");
+    fclose(output_file);
     return 0;
 }

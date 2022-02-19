@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <cstring>
 
+#include "hmr_ui.h"
+
 #include "hmr_fasta.h"
 
 #ifdef _MSC_VER
@@ -16,7 +18,7 @@ ssize_t getline(char **buf, size_t *bufsiz, FILE *fp)
     if (*buf == NULL || *bufsiz == 0)
     {
         //4K for initial.
-        *bufsiz = 512;
+        *bufsiz = 4096;
         if ((*buf = static_cast<char *>(malloc(*bufsiz))) == NULL)
         {
             return -1;
@@ -42,7 +44,7 @@ ssize_t getline(char **buf, size_t *bufsiz, FILE *fp)
             *ptr = '\0';
             return ptr - *buf;
         }
-        //Enlarge the buffer.
+        //Enlarge the buffer by doubled.
         if (ptr + 2 >= eptr)
         {
             char *nbuf;
@@ -130,6 +132,10 @@ void fasta_parser(const char *filepath, FASTA_SEQ_PROC parser, void *user)
 #else
     FILE *fasta_file = fopen(filepath, "r");
 #endif
+    if(!fasta_file)
+    {
+        time_error_str(1, "Failed to open fasta file %s", filepath);
+    }
     //Loop and detect line.
     char *line = NULL;
     size_t len = 0, line_length = 0;

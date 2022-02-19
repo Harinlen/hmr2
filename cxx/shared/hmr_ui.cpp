@@ -37,13 +37,22 @@ void time_error(int exitCode, const char *str)
     exit(exitCode);
 }
 
+#define TIME_BUF_ERROR  { \
+    char buf[1024]; \
+    sprintf(buf, fmt_str, value); \
+    time_error(exitCode, buf); \
+}
+
 #define TIME_BUF_PRINT  { \
-char buf[1024]; \
-sprintf(buf, fmt_str, value); \
-time_print(buf); \
+    char buf[1024]; \
+    sprintf(buf, fmt_str, value); \
+    time_print(buf); \
 }
 
 void time_print_int(const char *fmt_str, int value)
+TIME_BUF_PRINT
+
+void time_print_float(const char *fmt_str, float value)
 TIME_BUF_PRINT
 
 void time_print_str(const char *fmt_str, const char *value)
@@ -51,3 +60,12 @@ TIME_BUF_PRINT
 
 void time_print_size(const char *fmt_str, size_t value)
 TIME_BUF_PRINT
+
+void time_error_int(int exitCode, const char *fmt_str, int value)
+TIME_BUF_ERROR
+
+void time_error_str(int exitCode, const char *fmt_str, const char *value)
+TIME_BUF_ERROR
+
+void time_error_size(int exitCode, const char *fmt_str, size_t value)
+TIME_BUF_ERROR

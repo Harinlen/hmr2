@@ -1,8 +1,6 @@
 #ifndef FILTER_FASTA_TYPE_H
 #define FILTER_FASTA_TYPE_H
 
-#include <vector>
-
 #include "hmr_thread_pool.h"
 
 typedef struct ENZYME_RANGE
@@ -15,6 +13,7 @@ typedef struct FASTA_ENZYME_POSES
 {
     size_t seq_total;
     char **seq_names;
+    size_t *seq_name_length;
     size_t *seq_length;
     size_t *enz_range_size;
     ENZYME_RANGE **enz_ranges;
@@ -31,7 +30,7 @@ typedef struct FASTA_FILTER_WORK_ARGS
 
 typedef thread_pool<void (const FASTA_FILTER_WORK_ARGS &), FASTA_FILTER_WORK_ARGS> FILTER_WORKERS;
 
-typedef struct
+typedef struct FASTA_FILTER_USER
 {
     FILTER_WORKERS *workers;
     FASTA_ENZYME_POSES enzyme_poses;
