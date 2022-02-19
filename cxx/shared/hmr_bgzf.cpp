@@ -134,6 +134,7 @@ void hmr_bgzf_parse(const char *filepath, HMR_BGZF_QUEUE *queue, int threads)
 #ifdef _MSC_VER
     size_t total_size = _ftelli64(bgzf_file);
 #else
+    size_t total_size = ftello64(bgzf_file);
 #endif
     fseek(bgzf_file, 0L, SEEK_SET);
     size_t report_size = total_size / 10, report_pos = report_size;
@@ -202,6 +203,7 @@ void hmr_bgzf_parse(const char *filepath, HMR_BGZF_QUEUE *queue, int threads)
 #ifdef _MSC_VER
         size_t bgzf_pos = _ftelli64(bgzf_file);
 #else
+        size_t bgzf_pos = ftello64(bgzf_file);
 #endif
         if(bgzf_pos >= report_pos)
         {

@@ -1,3 +1,5 @@
+#include <cstring>
+
 #include "hmr_args_type.h"
 #include "filter_fasta_type.h"
 

@@ -1,6 +1,7 @@
 #include <cstdio>
+#include <cstring>
 
-#include "src/hmr_args_type.h"
+#include "hmr_args_type.h"
 #include "hmr_args_parser.h"
 
 #include "hmr_args.h"

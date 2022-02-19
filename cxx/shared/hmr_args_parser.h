@@ -5,6 +5,7 @@
 #include <functional>
 #include <set>
 #include <string>
+#include <vector>
 
 typedef struct HMR_ARG_INFO
 {

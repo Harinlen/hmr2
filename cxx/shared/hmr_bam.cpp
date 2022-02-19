@@ -1,3 +1,7 @@
+#include <cstdlib>
+#include <cstring>
+#include <thread>
+
 #include "hmr_ui.h"
 #include "hmr_bgzf.h"
 
