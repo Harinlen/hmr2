@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstring>
 #include <unordered_map>
+#include <algorithm>
 
 #include "hmr_bam.h"
 #include "hmr_ui.h"
