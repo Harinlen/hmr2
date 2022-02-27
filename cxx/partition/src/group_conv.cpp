@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <thread>
 #include <cmath>
+#include <vector>
 
 #include "hmr_cgd_parse.h"
 #include "hmr_ui.h"
