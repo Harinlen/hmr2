@@ -2,6 +2,7 @@
 #include <thread>
 #include <cmath>
 #include <vector>
+#include <list>
 
 #include "hmr_cgd_parse.h"
 #include "hmr_ui.h"
