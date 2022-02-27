@@ -757,14 +757,10 @@ std::vector<std::set<int> > group_hanamaru(CONTIG_NODE *nodes, size_t node_size,
             relation[j] = MARU_NODE_RELATION {j, target_mark};
         }
         //Sort the marks.
-        std::sort(relation, relation+groups, [](const auto &lhs, const auto &rhs){
+        std::sort(relation, relation+groups,
+                  [](const auto &lhs, const auto &rhs){
             return lhs.mark > rhs.mark;
         });
-        printf("%s\n", nodes[node_id].name);
-        for(int i=0; i<groups; ++i)
-        {
-            printf("%lf\n", relation[i].mark);
-        }
         //Chose the top group to merge into.
         maru_group[relation[0].group_id]->nodes.insert(node_id);
     }
