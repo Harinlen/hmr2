@@ -9,6 +9,10 @@
 extern HMR_ARG_PARSER args_parser;
 extern HMR_CONSTRAINTS args_constrains;
 
+#ifdef _MSC_VER
+#define sprintf     sprintf_s
+#endif
+
 void show_argument(const char *arg, const HMR_ARG_INFO &arg_info)
 {
     char arg_buf[1024], arg_item[1024];

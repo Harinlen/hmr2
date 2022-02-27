@@ -1,6 +1,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <unordered_map>
 
 #include "hmr_bam.h"
 #include "hmr_ui.h"
@@ -172,36 +173,57 @@ void index_block(size_t block_id, char *block, uint32_t block_size, void *user)
     }
 }
 
-std::unordered_map<uint64_t, size_t> filter_bam_statistic(const char *source, const FASTA_ENZYME_POSES &poses,
-                                   int mapq, int threads)
+std::vector<READ_EDGE> filter_bam_statistic(
+        const char *source, const FASTA_ENZYME_POSES &poses,
+        int mapq, int threads)
 {
-    std::unordered_map<uint64_t, size_t> edges;
+    std::unordered_map<uint64_t, size_t> raw_edges;
     BAM_PARSER filter {index_header, index_n_ref, index_ref, index_block};
     BAM_INDEX index;
     index.mapq = mapq;
     index.poses = &poses;
-    index.edges = &edges;
+    index.edges = &raw_edges;
     //Load the BAM file with using the filter parser.
     hmr_bam_load(source, &filter, threads, &index);
+    //Sort the edges.
+    std::vector<READ_EDGE> edges;
+    edges.reserve(raw_edges.size());
+    for(auto &edge : raw_edges)
+    {
+        BAM_EDGE_INFO edge_info;
+        edge_info.data = edge.first;
+        edges.push_back(READ_EDGE {edge_info.detail.edge_start, edge_info.detail.edge_end,
+                                   static_cast<double>(edge.second) /
+                                                       static_cast<double>(poses.enz_range_size[edge_info.detail.edge_start] +
+                                                       poses.enz_range_size[edge_info.detail.edge_end])});
+    }
+    //Sort the edges.
+    std::sort(edges.begin(), edges.end(), [](const READ_EDGE &left, const READ_EDGE &right)
+    {
+        return (left.start == right.start) ? (left.end < right.end) : (left.start < right.start);
+    });
+    //Return the edge.
     return edges;
 }
 
-void filter_bam_dump_edge(FILE *graph_file, const std::unordered_map<uint64_t, size_t> &raw_edges, const FASTA_ENZYME_POSES &poses)
+void filter_bam_dump_edge(const char *filepath, const std::vector<READ_EDGE> &edges)
 {
-    fprintf(graph_file, "*arcs\n");
-    //Loop for each edge.
-    for(auto &edge : raw_edges)
+#ifdef _MSC_VER
+    FILE *graph_file = NULL;
+    fopen_s(&graph_file, filepath, "wb");
+#else
+    FILE *graph_file = fopen(filepath, "wb");
+#endif
+    if(graph_file == NULL)
+    {
+        time_error_str(-1, "Failed to open edge output file %s", filepath);
+    }
+    size_t edge_count = edges.size();
+    fwrite(&edge_count, sizeof(size_t), 1, graph_file);
+    for(auto &edge : edges)
     {
         //Parse the edge information.
-        BAM_EDGE_INFO edge_info;
-        edge_info.data = edge.first;
-        //Write the index of the edge, which should increase 1.
-        //Calculate the weighted edge value.
-        fprintf(graph_file, "%d %d %.15lf\n",
-                edge_info.detail.edge_start+1,
-                edge_info.detail.edge_end+1,
-                static_cast<double>(edge.second) /
-                    static_cast<double>(poses.enz_range_size[edge_info.detail.edge_start] +
-                    poses.enz_range_size[edge_info.detail.edge_end]));
+        fwrite(&edge, sizeof(READ_EDGE), 1, graph_file);
     }
+    fclose(graph_file);
 }

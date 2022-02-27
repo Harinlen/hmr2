@@ -137,7 +137,7 @@ void hmr_bgzf_parse(const char *filepath, HMR_BGZF_QUEUE *queue, int threads)
     size_t total_size = ftello64(bgzf_file);
 #endif
     fseek(bgzf_file, 0L, SEEK_SET);
-    size_t report_size = total_size / 10, report_pos = report_size;
+    size_t report_size = (total_size + 9) / 10, report_pos = report_size;
     //Prepare the decompression buffer.
     size_t block_offset = 0;
     BGZF_HEADER header_buf;

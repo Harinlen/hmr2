@@ -9,6 +9,7 @@
 
 #ifdef _MSC_VER
 HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+#define sprintf     sprintf_s
 #endif
 
 void time_print(const char *str)

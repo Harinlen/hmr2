@@ -1,6 +1,7 @@
 #include <cstring>
 
 #include "hmr_args_type.h"
+#include "hmr_ui.h"
 #include "filter_fasta_type.h"
 
 #include "filter_fasta.h"
@@ -71,14 +72,29 @@ void filter_fasta_search_enzyme(const FASTA_FILTER_WORK_ARGS &args)
         //Increase the total.
         ++enzyme_poses->seq_total;
     }
+    //Recover the memory.
+    free(args.seq_name);
+    free(args.seq);
 }
 
-void filter_fasta_dump_node(FILE *graph_file, const FASTA_ENZYME_POSES &poses)
+void filter_fasta_dump_node(const char *filepath, const FASTA_ENZYME_POSES &poses)
 {
-    //Loop and write the file.
-    fprintf(graph_file, "*Vertices %zu\n", poses.seq_total);
+#ifdef _MSC_VER
+    FILE *node_file = NULL;
+    fopen_s(&node_file, filepath, "wb");
+#else
+    FILE *node_file = fopen(filepath, "wb");
+#endif
+    if(node_file == NULL)
+    {
+        time_error_str(-1, "Failed to open node output file %s", filepath);
+    }
+    //Write the data.
+    fwrite(&poses.seq_total, sizeof(size_t), 1, node_file);
     for(size_t i=0; i<poses.seq_total; ++i)
     {
-        fprintf(graph_file, "%zu \"%s\"\n", i+1, poses.seq_names[i]);
+        fwrite(&poses.seq_name_length[i], sizeof(size_t), 1, node_file);
+        fwrite(poses.seq_names[i], poses.seq_name_length[i], 1, node_file);
     }
+    fclose(node_file);
 }

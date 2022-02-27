@@ -1,5 +1,6 @@
 #include <cstdlib>
 #include <cstdio>
+#include <cstring>
 
 #include "hmr_args.h"
 #include "hmr_args_type.h"
@@ -43,25 +44,27 @@ int main(int argc, char *argv[])
         workers.wait_for_tasks();
     }
     time_print_size("Enzyme index built, total sequenece: %d", enzyme_poses.seq_total);
-    //Dump the enzyme count file.
-#ifdef _MSC_VER
-    FILE *output_file = NULL;
-    fopen_s(&output_file, opts.output, "w");
-#else
-    FILE *output_file = fopen(opts.output, "w");
-#endif
-    time_print_str("Dump node info to %s", opts.output);
-    filter_fasta_dump_node(output_file, enzyme_poses);
+    char node_path[1024];
+    sprintf(node_path, "%s.node", opts.output);
+    time_print_str("Dump node info to %s", node_path);
+    filter_fasta_dump_node(node_path, enzyme_poses);
     time_print("Graph nodes dump completed.");
     //Read the filter the mapping file.
     time_print_str("Filtering mapping file %s", opts.mapping);
-    std::unordered_map<uint64_t, size_t> raw_edges =
+    std::vector<READ_EDGE> edges =
             filter_bam_statistic(opts.mapping, fasta_user.enzyme_poses, opts.mapq, opts.threads);
-    time_print_size("Filter complete, %zu edges generated.", raw_edges.size());
+    time_print_size("Filter complete, %zu edges generated.", edges.size());
+    //Dump the read positions.
+//    char read_path[1024];
+//    sprintf(read_path, "%s.read", opts.output);
+//    time_print_str("Dump reads info to %s", read_path);
+//    ;
+//    time_print("reads info dump completed.");
     //Based on the node and raw edges, dump the weighted edges.
-    time_print_str("Dump edge info to %s", opts.output);
-    filter_bam_dump_edge(output_file, raw_edges, fasta_user.enzyme_poses);
+    char edge_path[1024];
+    sprintf(edge_path, "%s.edge", opts.output);
+    time_print_str("Dump edge info to %s", edge_path);
+    filter_bam_dump_edge(edge_path, edges);
     time_print("Graph edges dump completed.");
-    fclose(output_file);
     return 0;
 }

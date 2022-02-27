@@ -148,5 +148,12 @@ void fasta_parser(const char *filepath, FASTA_SEQ_PROC parser, void *user)
         //Yield the line, call the function.
         fasta_yield_line(line, line_length, parser, user);
     }
+    //At the end of the line, yield the last result.
+    parser(seq_name, seq_name_len, seq_data, seq_data_len, user);
+    //Reset the name and length to the initial state.
+    seq_name = NULL;
+    seq_name_len = 0;
+    seq_data = NULL;
+    seq_data_len = 0;
     fclose(fasta_file);
 }

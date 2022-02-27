@@ -5,6 +5,10 @@
 
 #include "filter_enzyme.h"
 
+#ifdef _MSC_VER
+#define sprintf     sprintf_s
+#endif
+
 std::unordered_map<std::string, const char *> known_enzyme_alias
 {
     {std::string("HINDIII"), "AAGCTT"},
