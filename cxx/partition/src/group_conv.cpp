@@ -67,7 +67,8 @@ void group_hana_trust_edge(const THREAD_BLOCK &block, CONTIG_NODE *nodes, size_t
     for(size_t i=range*block.idx, i_max=hMin(i+range, node_size); i<i_max; ++i)
     {
         //Sort the edges first.
-        std::sort(nodes[i].links.begin(), nodes[i].links.end(), [](const auto &lhs, const auto &rhs){
+        std::sort(nodes[i].links.begin(), nodes[i].links.end(),
+                  [](const CONTIG_EDGE &lhs, const CONTIG_EDGE &rhs){
             return lhs.weight > rhs.weight;
         });
         //Calculate the sum of middle value of the two side.
@@ -528,7 +529,7 @@ std::vector<std::set<int> > group_hanamaru(CONTIG_NODE *nodes, size_t node_size,
     }
     //Sort the node marks.
     std::sort(node_marks, node_marks + node_size,
-              [](const auto &lhs, const auto &rhs) {
+              [](const NODE_MARK &lhs, const NODE_MARK &rhs) {
         return lhs.mark > rhs.mark;
     });
     // -- HANA Stage --
@@ -593,7 +594,7 @@ std::vector<std::set<int> > group_hanamaru(CONTIG_NODE *nodes, size_t node_size,
                                               core_group_list.end());
     }
     std::sort(core_groups.begin(), core_groups.end(),
-              [](const auto &lhs, const auto &rhs) {
+              [](const HANA_GROUP &lhs, const HANA_GROUP &rhs) {
         return lhs.nodes.size() > rhs.nodes.size();
     });
     time_print_size("HANA stage complete, find %zu groups.", core_groups.size());
@@ -759,7 +760,7 @@ std::vector<std::set<int> > group_hanamaru(CONTIG_NODE *nodes, size_t node_size,
         }
         //Sort the marks.
         std::sort(relation, relation+groups,
-                  [](const auto &lhs, const auto &rhs){
+                  [](const MARU_NODE_RELATION &lhs, const MARU_NODE_RELATION &rhs){
             return lhs.mark > rhs.mark;
         });
         //Chose the top group to merge into.
