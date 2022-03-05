@@ -1,3 +1,5 @@
+#include <vector>
+
 #include "hmr_cgd_type.h"
 #include "hmr_ui.h"
 
