@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <queue>
 #include <thread>
+#include <cmath>
 
 #include "hmr_global.h"
 #include "hmr_cgd_parse.h"
