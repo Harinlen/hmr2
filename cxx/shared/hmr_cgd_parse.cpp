@@ -30,14 +30,20 @@ void hmr_node_read(const char *node_path, CONTIG_NODE **graph_nodes, size_t *gra
         time_error(-1, "Failed to read node file %s", node_path);
     }
     size_t node_size;
-    fread(&node_size, sizeof(size_t), 1, node_file);
+    if(fread(&node_size, sizeof(size_t), 1, node_file) != 1)
+    {
+        time_error(-1, "Failed to read the number of nodes.");
+    }
     *graph_node_size = node_size;
     //Create the node size.
     CONTIG_NODE *nodes = new CONTIG_NODE[node_size];
     *graph_nodes = nodes;
     for(size_t i=0; i<node_size; ++i)
     {
-        fread(&(nodes[i].l_name), sizeof(size_t), 1, node_file);
+        if(fread(&(nodes[i].l_name), sizeof(size_t), 1, node_file) != 1)
+        {
+            time_error(-1, "No expected length of the contig name.");
+        }
         nodes[i].name = new char[nodes[i].l_name + 1];
         fread(nodes[i].name, nodes[i].l_name, 1, node_file);
         nodes[i].name[nodes[i].l_name] = '\0';
