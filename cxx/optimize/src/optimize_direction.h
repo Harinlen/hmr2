@@ -1,11 +1,8 @@
 #ifndef OPTIMIZE_DIRECTION_H
 #define OPTIMIZE_DIRECTION_H
 
+#include "hmr_polar_type.h"
 
-class optimize_direction
-{
-public:
-    optimize_direction();
-};
+void optimize_direction(POLAR_INFO &polar_infos);
 
 #endif // OPTIMIZE_DIRECTION_H

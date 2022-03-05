@@ -7,9 +7,11 @@
 #include "hmr_cluster.h"
 #include "hmr_ui.h"
 #include "hmr_global.h"
-#include "optimize_order.h"
-
+#include "hmr_reads_parse.h"
 #include "hmr_cgd_parse.h"
+#include "optimize_order.h"
+#include "optimize_direction.h"
+#include "hmr_tour.h"
 
 extern HMR_ARGS opts;
 
@@ -37,22 +39,14 @@ int main(int argc, char *argv[])
     delete[] node_infos;
     time_print("Sequence determined.");
     //Determine the direction of each group.
-//    time_print("Reading node polar file...");
-//    POLAR_INFO polar_info = hmr_polar_parse(opts.polar);
-//    time_print("Node polar info imported.");
-
-//    int i=0;
-//    std::vector<int> group_direction = optimize_direction(group_sequences[i], polar_info);
-//    for(auto j: group_direction)
-//    {
-//        printf("%d ", j);
-//    }
-//    printf("\n");
-
-    printf("---------------------\n");
-    for(auto j: node_sequence)
-    {
-        printf("%s\n", nodes[j].name);
-    }
+    time_print("Reading HiC reads file...");
+    POLAR_INFO polar_infos = hmr_polar_parse(opts.reads, node_sequence, nodes);
+    time_print("Group reads imported.");
+    time_print("Deciding directions...");
+    optimize_direction(polar_infos);
+    time_print("Direction optimized complete.");
+    //Write the tour file for the result.
+    hmr_tour_dump(opts.output, nodes, polar_infos);
+    time_print("Optimize result dumps to %s", opts.output);
     return 0;
 }
