@@ -220,7 +220,7 @@ void filter_bam_statistic(const char *source, const FASTA_ENZYME_POSES &poses,
     index.read_file = NULL;
     fopen_s(&index.read_file, reads_path, "wb");
 #else
-    FILE *index.read_file = fopen(reads_path, "wb");
+    index.read_file = fopen(reads_path, "wb");
 #endif
     if(index.read_file == NULL)
     {
