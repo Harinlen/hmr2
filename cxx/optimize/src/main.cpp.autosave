@@ -37,8 +37,8 @@ int main(int argc, char *argv[])
     delete[] node_infos;
     time_print("Sequence determined.");
     //Determine the direction of each group.
-//    time_print("Reading node polar file...");
-//    POLAR_INFO polar_info = hmr_polar_parse(opts.polar);
+    time_print("Reading node polar file...");
+    POLAR_INFO polar_info = hmr_polar_parse(opts.polar);
 //    time_print("Node polar info imported.");
 
 //    int i=0;

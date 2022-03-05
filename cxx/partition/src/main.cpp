@@ -5,7 +5,7 @@
 #include "hmr_args.h"
 #include "hmr_args_type.h"
 #include "hmr_ui.h"
-#include "group_conv.h"
+#include "partition.h"
 
 #include "hmr_cgd_parse.h"
 
@@ -17,33 +17,56 @@ int main(int argc, char *argv[])
     parse_arguments(argc, argv);
     //Print the current working parameter.
     time_print("Execution configuration:");
-    time_print_int("\tPartition group: %d", opts.group);
-    time_print_int("\tThreads: %d", opts.threads);
+    time_print("\tPartition group: %d", opts.group);
+    time_print("\tThreads: %d", opts.threads);
     //Read and store the network.
     CONTIG_NODE *nodes;
     size_t node_size;
     time_print("Reading network node and edge files...");
     hmr_net_read(opts.node, opts.edge, &nodes, &node_size);
-    time_print_size("%zu node(s) read.", node_size);
+    time_print("%zu node(s) read.", node_size);
     //Run hana-maru algorithm.
-    std::vector<std::set<int> > groups = group_hanamaru(nodes, node_size, opts.group, opts.threads);
-    //Write the partition result to the output file.
-    time_print_str("Dumping partition result to %s", opts.output);
+    std::vector<std::vector<int> > groups;
+    std::list<int> unknown_ids;
+    group_hanamaru(nodes, node_size, opts.group, opts.threads, groups, unknown_ids);
+    //Check defected ids.
+    if(!unknown_ids.empty())
+    {
+        time_print("%zu unknown nodes detected.", unknown_ids.size());
+        char defect_path[1024];
+        sprintf(defect_path, "%s.defect", opts.output);
+        time_print("Dump defect nodes to %s", defect_path);
 #ifdef _MSC_VER
-    FILE *output_file = NULL;
-    fopen_s(&output_file, opts.output, "wb");
+        FILE *defect_file = NULL;
+        fopen_s(&defect_file, defect_path, "wb");
 #else
-    FILE *output_file = fopen(opts.output, "wb");
+        FILE *defect_file = fopen(defect_path, "wb");
 #endif
-    if(output_file == NULL)
-    {
-        time_error_str(-1, "Failed to open output file %s", opts.output);
+        int defect_size = static_cast<int>(unknown_ids.size());
+        fwrite(&defect_size, sizeof(int), 1, defect_file);
+        for(int i: unknown_ids)
+        {
+            fwrite(&i, sizeof(int), 1, defect_file);
+        }
+        fclose(defect_file);
+        time_print("Defected nodes dumped.");
     }
-    //Write the total group number.
-    int result_groups = static_cast<int>(groups.size());
-    fwrite(&result_groups, sizeof(int), 1, output_file);
-    for(int i=0; i<result_groups; ++i)
+    //Write the partition result to the output file.
+    char output_path[1024];
+    for(int i=0; i<opts.group; ++i)
     {
+        sprintf(output_path, "%s_%dg%d.cluster", opts.output, i+1, opts.group);
+        time_print("Dumping partition %d result...", i);
+#ifdef _MSC_VER
+        FILE *output_file = NULL;
+        fopen_s(&output_file, output_path, "wb");
+#else
+        FILE *output_file = fopen(output_path, "wb");
+#endif
+        if(output_file == NULL)
+        {
+            time_error(-1, "Failed to open output file %s", opts.output);
+        }
         //Write the size of the group first.
         const auto node_ids = groups[i];
         int group_size = static_cast<int>(node_ids.size());
@@ -53,8 +76,9 @@ int main(int argc, char *argv[])
         {
             fwrite(&j, sizeof(int), 1, output_file);
         }
+        fclose(output_file);
+        time_print("%zu nodes dumped.", node_ids.size());
     }
-    fclose(output_file);
-    time_print("Partition complete.");
+    time_print("Partition info output complete.");
     return 0;
 }

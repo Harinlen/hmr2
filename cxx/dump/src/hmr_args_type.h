@@ -2,12 +2,9 @@
 #define HMR_ARGS_TYPE_H
 
 typedef struct HMR_ARGS {
-    char *node = nullptr;
-    char *edge = nullptr;
-    char *reads = nullptr;
+    char *nodes = nullptr;
     char *cluster = nullptr;
     char *output = nullptr;
-    int threads = 1;
 } HMR_ARGS;
 
 #endif // HMR_ARGS_TYPE_H

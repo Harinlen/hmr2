@@ -127,7 +127,7 @@ void hmr_bgzf_parse(const char *filepath, HMR_BGZF_QUEUE *queue, int threads)
 #endif
     if(!bgzf_file)
     {
-        time_error_str(1, "Failed to open bgzf file %s", filepath);
+        time_error(1, "Failed to open bgzf file %s", filepath);
     }
     //Get the total file size.
     fseek(bgzf_file, 0L, SEEK_END);
@@ -208,7 +208,7 @@ void hmr_bgzf_parse(const char *filepath, HMR_BGZF_QUEUE *queue, int threads)
         if(bgzf_pos >= report_pos)
         {
             float percent = static_cast<float>(bgzf_pos) / static_cast<float>(total_size) * 100.0f;
-            time_print_float("BGZF parsed %.1f%%", percent);
+            time_print("BGZF parsed %.1f%%", percent);
             report_pos += report_size;
         }
     }

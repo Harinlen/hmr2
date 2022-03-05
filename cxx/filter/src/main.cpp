@@ -20,15 +20,15 @@ int main(int argc, char *argv[])
     parse_arguments(argc, argv);
     //Print the current working parameter.
     time_print("Execution configuration:");
-    time_print_int("\tMinimum Map Quality: %d", opts.mapq);
-    time_print_int("\tThreads: %d", opts.threads);
+    time_print("\tMinimum Map Quality: %d", opts.mapq);
+    time_print("\tThreads: %d", opts.threads);
     //Read the FASTA file and find the enzyme.
     const char *nuc_seq = NULL;
     int nuc_seq_size = 0;
     filter_enzyme_formalize(opts.enzyme, &nuc_seq, &nuc_seq_size);
     opts.nuc_seq = nuc_seq;
     opts.nuc_seq_length = nuc_seq_size;
-    time_print_str("\tEnzyme: %s", opts.nuc_seq);
+    time_print("\tEnzyme: %s", opts.nuc_seq);
     time_print("Building enzyme index from FASTA file...");
     //Initial the FASTA filter user.
     FASTA_FILTER_USER fasta_user;
@@ -43,27 +43,24 @@ int main(int argc, char *argv[])
         //Wait until all the workers are completed.
         workers.wait_for_tasks();
     }
-    time_print_size("Enzyme index built, total sequenece: %d", enzyme_poses.seq_total);
+    time_print("Enzyme index built, total sequenece: %d", enzyme_poses.seq_total);
     char node_path[1024];
     sprintf(node_path, "%s.node", opts.output);
-    time_print_str("Dump node info to %s", node_path);
+    time_print("Dump node info to %s", node_path);
     filter_fasta_dump_node(node_path, enzyme_poses);
     time_print("Graph nodes dump completed.");
     //Read the filter the mapping file.
-    time_print_str("Filtering mapping file %s", opts.mapping);
-    std::vector<READ_EDGE> edges =
-            filter_bam_statistic(opts.mapping, fasta_user.enzyme_poses, opts.mapq, opts.threads);
-    time_print_size("Filter complete, %zu edges generated.", edges.size());
-    //Dump the read positions.
-//    char read_path[1024];
-//    sprintf(read_path, "%s.read", opts.output);
-//    time_print_str("Dump reads info to %s", read_path);
-//    ;
-//    time_print("reads info dump completed.");
+    time_print("Filtering mapping file %s", opts.mapping);
+    char reads_path[1024];
+    sprintf(reads_path, "%s.reads", opts.output);
+    time_print("Dump reads position info to %s", reads_path);
+    std::vector<READ_EDGE> edges;
+    filter_bam_statistic(opts.mapping, fasta_user.enzyme_poses, opts.mapq, opts.threads, edges, reads_path);
+    time_print("Filter complete, %zu edges generated.", edges.size());
     //Based on the node and raw edges, dump the weighted edges.
     char edge_path[1024];
     sprintf(edge_path, "%s.edge", opts.output);
-    time_print_str("Dump edge info to %s", edge_path);
+    time_print("Dump edge info to %s", edge_path);
     filter_bam_dump_edge(edge_path, edges);
     time_print("Graph edges dump completed.");
     return 0;

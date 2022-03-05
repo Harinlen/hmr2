@@ -1,7 +1,6 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
-#include <unordered_map>
 #include <algorithm>
 
 #include "hmr_bam.h"
@@ -50,6 +49,10 @@ typedef struct BAM_INDEX
     const FASTA_ENZYME_POSES *poses;
     std::unordered_map<uint64_t, size_t> *edges;
     std::unordered_map<uint64_t, BAM_PAIR_INDEX> pair_map;
+    FILE *read_file;
+    char *read_buf;
+    size_t read_buf_size;
+    size_t read_buf_offset;
 } BAM_INDEX;
 
 void index_header(char *text, uint32_t l_text, void *user)
@@ -106,6 +109,14 @@ inline bool index_in_range(size_t pos, ENZYME_RANGE *ranges, size_t range_size)
     return false;
 }
 
+typedef struct READ_INFO
+{
+    int32_t ref_id;
+    int32_t pos;
+    int32_t next_ref_id;
+    int32_t next_pos;
+} READ_INFO;
+
 void index_block(size_t block_id, char *block, uint32_t block_size, void *user)
 {
     (void)block_size;
@@ -120,10 +131,11 @@ void index_block(size_t block_id, char *block, uint32_t block_size, void *user)
     //Check whether the header mapping id is valid, and in enzyme range.
     int32_t my_ref_id = index->ref_id_map[header->refID],
             paired_ref_id = index->ref_id_map[header->next_refID];
+    const FASTA_ENZYME_POSES *poses = index->poses;
     if(my_ref_id == -1 || paired_ref_id == -1 ||
             !index_in_range(header->pos,
-                            index->poses->enz_ranges[my_ref_id],
-                            index->poses->enz_range_size[my_ref_id]))
+                            poses->enz_ranges[my_ref_id],
+                            poses->enz_range_size[my_ref_id]))
     {
         return;
     }
@@ -167,6 +179,23 @@ void index_block(size_t block_id, char *block, uint32_t block_size, void *user)
             {
                 ++edge_result->second;
             }
+            //Dump the reads result info.
+            if(edge_info.detail.edge_start != edge_info.detail.edge_end)
+            {
+                //Write the data to buffer.
+                READ_INFO *read_data = reinterpret_cast<READ_INFO *>(index->read_buf + index->read_buf_offset);
+                //Set the data.
+                *read_data = READ_INFO{edge_info.detail.edge_start, header->pos,
+                        edge_info.detail.edge_end, header->next_pos};
+                index->read_buf_offset += sizeof(READ_INFO);
+                //Check whether the offset reach the limitation.
+                if(index->read_buf_offset >= index->read_buf_size)
+                {
+                    //Write the buffer.
+                    fwrite(index->read_buf, index->read_buf_offset, 1, index->read_file);
+                    index->read_buf_offset = 0;
+                }
+            }
             //Replace the mapping id.
             pair_result->second.paired_data = PAIR_INVALID;
             pair_result->second.key_id = PAIR_INVALID;
@@ -174,9 +203,9 @@ void index_block(size_t block_id, char *block, uint32_t block_size, void *user)
     }
 }
 
-std::vector<READ_EDGE> filter_bam_statistic(
-        const char *source, const FASTA_ENZYME_POSES &poses,
-        int mapq, int threads)
+void filter_bam_statistic(const char *source, const FASTA_ENZYME_POSES &poses,
+        int mapq, int threads,
+        std::vector<READ_EDGE> &graph_edges, const char *reads_path)
 {
     std::unordered_map<uint64_t, size_t> raw_edges;
     BAM_PARSER filter {index_header, index_n_ref, index_ref, index_block};
@@ -184,8 +213,30 @@ std::vector<READ_EDGE> filter_bam_statistic(
     index.mapq = mapq;
     index.poses = &poses;
     index.edges = &raw_edges;
+    index.read_buf_size = sizeof(READ_INFO) << 20;
+    index.read_buf = static_cast<char *>(malloc(index.read_buf_size));
+    index.read_buf_offset = 0;
+#ifdef _MSC_VER
+    index.read_file = NULL;
+    fopen_s(&index.read_file, reads_path, "wb");
+#else
+    FILE *index.read_file = fopen(reads_path, "wb");
+#endif
+    if(index.read_file == NULL)
+    {
+        time_error(-1, "Failed to open reads info output file %s", reads_path);
+    }
     //Load the BAM file with using the filter parser.
     hmr_bam_load(source, &filter, threads, &index);
+    //Flush the buffer.
+    if(index.read_buf_offset > 0)
+    {
+        fwrite(index.read_buf, index.read_buf_offset, 1, index.read_file);
+    }
+    //Complete the data dump.
+    fclose(index.read_file);
+    //Free the buffer.
+    free(index.read_buf);
     //Sort the edges.
     std::vector<READ_EDGE> edges;
     edges.reserve(raw_edges.size());
@@ -203,8 +254,8 @@ std::vector<READ_EDGE> filter_bam_statistic(
     {
         return (left.start == right.start) ? (left.end < right.end) : (left.start < right.start);
     });
-    //Return the edge.
-    return edges;
+    //Return the edges and half edges.
+    graph_edges = edges;
 }
 
 void filter_bam_dump_edge(const char *filepath, const std::vector<READ_EDGE> &edges)
@@ -217,7 +268,7 @@ void filter_bam_dump_edge(const char *filepath, const std::vector<READ_EDGE> &ed
 #endif
     if(graph_file == NULL)
     {
-        time_error_str(-1, "Failed to open edge output file %s", filepath);
+        time_error(-1, "Failed to open edge output file %s", filepath);
     }
     size_t edge_count = edges.size();
     fwrite(&edge_count, sizeof(size_t), 1, graph_file);

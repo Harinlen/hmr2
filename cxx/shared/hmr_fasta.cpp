@@ -134,7 +134,7 @@ void fasta_parser(const char *filepath, FASTA_SEQ_PROC parser, void *user)
 #endif
     if(!fasta_file)
     {
-        time_error_str(1, "Failed to open fasta file %s", filepath);
+        time_error(1, "Failed to open fasta file %s", filepath);
     }
     //Loop and detect line.
     char *line = NULL;

@@ -87,7 +87,7 @@ void filter_fasta_dump_node(const char *filepath, const FASTA_ENZYME_POSES &pose
 #endif
     if(node_file == NULL)
     {
-        time_error_str(-1, "Failed to open node output file %s", filepath);
+        time_error(-1, "Failed to open node output file %s", filepath);
     }
     //Write the data.
     fwrite(&poses.seq_total, sizeof(size_t), 1, node_file);
@@ -95,6 +95,7 @@ void filter_fasta_dump_node(const char *filepath, const FASTA_ENZYME_POSES &pose
     {
         fwrite(&poses.seq_name_length[i], sizeof(size_t), 1, node_file);
         fwrite(poses.seq_names[i], poses.seq_name_length[i], 1, node_file);
+        fwrite(&poses.seq_length[i], sizeof(size_t), 1, node_file);
     }
     fclose(node_file);
 }

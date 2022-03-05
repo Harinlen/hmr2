@@ -15,7 +15,8 @@ typedef struct READ_EDGE
     double weight;
 } READ_EDGE;
 
-int hmr_net_read(const char *node_path, const char *edge_path, CONTIG_NODE **graph_nodes, size_t *graph_node_size)
+
+void hmr_node_read(const char *node_path, CONTIG_NODE **graph_nodes, size_t *graph_node_size)
 {
     //Read the vertices.
 #ifdef _MSC_VER
@@ -26,7 +27,7 @@ int hmr_net_read(const char *node_path, const char *edge_path, CONTIG_NODE **gra
 #endif
     if(node_file == NULL)
     {
-        time_error_str(-1, "Failed to read node file %s", node_path);
+        time_error(-1, "Failed to read node file %s", node_path);
     }
     size_t node_size;
     fread(&node_size, sizeof(size_t), 1, node_file);
@@ -40,8 +41,16 @@ int hmr_net_read(const char *node_path, const char *edge_path, CONTIG_NODE **gra
         nodes[i].name = new char[nodes[i].l_name + 1];
         fread(nodes[i].name, nodes[i].l_name, 1, node_file);
         nodes[i].name[nodes[i].l_name] = '\0';
+        fread(&(nodes[i].length), sizeof(size_t), 1, node_file);
     }
     fclose(node_file);
+}
+
+int hmr_net_read(const char *node_path, const char *edge_path, CONTIG_NODE **graph_nodes, size_t *graph_node_size)
+{
+    //Read the nodes.
+    hmr_node_read(node_path, graph_nodes, graph_node_size);
+    CONTIG_NODE *nodes = *graph_nodes;
     //Read the edges.
 #ifdef _MSC_VER
     FILE *edge_file = NULL;
@@ -51,7 +60,7 @@ int hmr_net_read(const char *node_path, const char *edge_path, CONTIG_NODE **gra
 #endif
     if(edge_file == NULL)
     {
-        time_error_str(-1, "Failed to read edge file %s", edge_path);
+        time_error(-1, "Failed to read edge file %s", edge_path);
     }
     size_t edge_size;
     READ_EDGE edge;
