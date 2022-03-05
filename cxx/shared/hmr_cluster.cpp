@@ -1,3 +1,6 @@
+#include <cstdlib>
+#include <cstdio>
+
 #include "hmr_ui.h"
 #include "hmr_cluster.h"
 
