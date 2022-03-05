@@ -18,8 +18,8 @@ void time_print(const char *str, ...)
     time_t now = time(0);
     va_list args;
     va_start(args, str);
-    char buffer[1024];
-    vsnprintf(buffer, 1025, str, args);
+    char buffer[1025];
+    vsnprintf(buffer, 1024, str, args);
     va_end(args);
 #ifdef _MSC_VER
     struct tm tstruct;
@@ -41,8 +41,8 @@ void time_error(int exitCode, const char *str, ...)
     //Print the data.
     va_list args;
     va_start(args, str);
-    char buffer[1024];
-    vsnprintf(buffer, 1025, str, args);
+    char buffer[1025];
+    vsnprintf(buffer, 1024, str, args);
     va_end(args);
     time_print("%s", buffer);
     //Exit the program.
