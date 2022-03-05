@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <cstdarg>
 #ifdef _MSC_VER
 #include <Windows.h>
 #endif
