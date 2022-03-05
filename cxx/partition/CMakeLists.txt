@@ -16,8 +16,8 @@ add_executable(partition
     ../shared/hmr_args.cpp
     ../shared/hmr_cgd_parse.cpp
     ../shared/hmr_ui.cpp
-    src/group_conv.cpp
     src/hmr_args_type.cpp
     src/main.cpp
+    src/partition.cpp
 )
 target_link_libraries(partition pthread)
