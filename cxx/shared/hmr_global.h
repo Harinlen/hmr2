@@ -21,4 +21,7 @@ constexpr inline const T hAbs(const T &x) { return (x < 0) ? (-1 * x) : x; }
 template <typename T>
 constexpr inline bool hInSet(const T &x, const std::unordered_set<T> &s) { return s.find(x) != s.end(); }
 
+template <typename T>
+constexpr inline const T hSquare(const T &x) { return x * x; };
+
 #endif // HMR_GLOBAL_H

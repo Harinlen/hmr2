@@ -9,20 +9,32 @@
 
 #include "partition.h"
 
-typedef struct HANA_GROUP
-{
-    std::unordered_set<int> ids;
-    size_t length;
-} HANA_GROUP;
 typedef std::unordered_map<int, double> EDGE_MAP;
 
 typedef struct NODE_INFO
 {
     size_t trust_pos;
     EDGE_MAP edge_map;
-    HANA_GROUP *parent;
     CONTIG_NODE *node;
 } NODE_INFO;
+
+inline double edge_weight(const EDGE_MAP &map, int node_id)
+{
+    const auto finder = map.find(node_id);
+    return finder == map.end() ? 0.0 : finder->second;
+}
+
+typedef struct TRUST_EDGE
+{
+    int start;
+    int end;
+    double weight;
+} TRUST_EDGE;
+
+bool compare_trust_edge(const TRUST_EDGE &lhs, const TRUST_EDGE &rhs)
+{
+    return lhs.weight > rhs.weight;
+}
 
 template <typename T>
 std::vector<T> derivative(const std::vector<T> &fx)
@@ -43,126 +55,195 @@ size_t maximum_pos(const std::vector<T> &fx)
     return std::distance(fx.begin(), std::max_element(fx.begin(), fx.end()));
 }
 
-inline bool in_group(int node_id, HANA_GROUP *group)
+typedef union EDGE_INFO
 {
-    return hInSet(node_id, group->ids);
-}
-
-inline double edge_weight(const EDGE_MAP &map, int node_id)
-{
-    const auto finder = map.find(node_id);
-    return finder == map.end() ? 0.0 : finder->second;
-}
-
-void fit_linear(const std::vector<double> &x, const std::vector<double> &y, double &k, double &b)
-{
-    size_t n = x.size();
-    //If we only have two points, we directly solve it.
-    if(n == 2)
+    typedef struct EDGE
     {
-        k = (y[0] - y[1]) / (x[0] - x[1]);
-        b = y[0] - k * x[0];
-        return;
-    }
-    double x_ave = 0.0, y_ave = 0.0, xy_sum = 0.0, x2_sum = 0.0;
-    for(size_t i=0; i<n; ++i)
-    {
-        x_ave += x[i];
-        y_ave += y[i];
-        xy_sum += x[i] * y[i];
-        x2_sum += x[i] * x[i];
-    }
-    x_ave /= static_cast<double>(n);
-    y_ave /= static_cast<double>(n);
-    //Calculate k and b with least squares method.
-    k = (xy_sum - n * x_ave * y_ave) / (x2_sum - n * x_ave * x_ave);
-    b = y_ave - k * x_ave;
-}
+        int32_t start;
+        int32_t end;
+    } EDGE;
+    EDGE edge;
+    uint64_t data;
+} EDGE_INFO;
 
-double linear_loss(const std::vector<double> &x, const std::vector<double> &y, const double &k, const double &b)
+uint64_t pack_edge_data(int32_t x, int32_t y)
 {
-    size_t n = x.size();
-    double loss = 0.0, A = k, B = -1, C = b;
-    double bottom = sqrt(A * A + B * B);
-    for(size_t i=0; i<n; ++i)
+    EDGE_INFO info;
+    if(x < y)
     {
-        loss += hAbs(A * x[i] + B * y[i] + C) / bottom;
-    }
-    return loss;
-}
-
-void generate_mark(int **marks, int mark_range)
-{
-    int *mark_arr = new int[mark_range];
-    int mark = 1;
-    //The last 10 marks are exponential, others are linear.
-    if(mark_range < 10)
-    {
-        for(int i=mark_range - 1; i>-1; --i)
-        {
-            mark_arr[i] = mark;
-            mark <<= 1;
-        }
+        info.edge = EDGE_INFO::EDGE {x, y};
     }
     else
     {
-        for(int i=mark_range - 1; i>9; --i)
-        {
-            mark_arr[i] = mark;
-            ++mark;
-        }
-        for(int i=9; i>-1; --i)
-        {
-            mark_arr[i] = mark;
-            mark <<= 1;
-        }
+        info.edge = EDGE_INFO::EDGE {y, x};
     }
-    *marks = mark_arr;
+    return info.data;
 }
 
-void node_merge(HANA_GROUP *dst, int node_id, NODE_INFO *node_infos)
+void unpack_edge_data(uint64_t data, int32_t &x, int32_t &y)
 {
-    //Update the node information.
-    node_infos[node_id].parent = dst;
-    //Update the node group.
-    dst->ids.insert(node_id);
-    dst->length += node_infos[node_id].node->length;
+    EDGE_INFO info;
+    info.data = data;
+    x = info.edge.start;
+    y = info.edge.end;
 }
 
-void group_merge(HANA_GROUP *dst, HANA_GROUP *src, NODE_INFO *node_infos)
+typedef struct EDGE_VOTE_RESULT
 {
-    //Update all the parent of source group to target group.
-    dst->ids.insert(src->ids.begin(), src->ids.end());
-    for(int src_id: src->ids)
+    uint64_t edge;
+    size_t votes;
+} EDGE_VOTE_RESULT;
+
+typedef std::unordered_set<int32_t> NODE_ID_SET;
+typedef std::unordered_map<uint64_t, NODE_ID_SET> EDGE_VOTER;
+
+void vote_edge(EDGE_VOTER &voter, int32_t x, int32_t y, int32_t host_node)
+{
+    uint64_t edge_key = pack_edge_data(x, y);
+    auto edge_finder = voter.find(edge_key);
+    if(edge_finder == voter.end())
     {
-        node_infos[src_id].parent = dst;
+        std::unordered_set<int32_t> node_set;
+        node_set.insert(host_node);
+        voter.insert(std::make_pair(edge_key, node_set));
     }
-    dst->length += src->length;
+    else
+    {
+        edge_finder->second.insert(host_node);
+    }
 }
 
-double group_relation(HANA_GROUP *lhs, HANA_GROUP *rhs, NODE_INFO *node_info, size_t edge_limit)
+typedef struct NODE_SET_MARK
 {
-    HANA_GROUP *small = lhs, *big = rhs;
-    if(rhs->ids.size() < lhs->ids.size())
+    NODE_ID_SET node_ids;
+    int subsets;
+} NODE_SET_MARK;
+
+bool is_subset(const NODE_ID_SET &x, const NODE_ID_SET &y)
+{
+    //Likely.
+    if(y.size() <= x.size())
     {
-        small = rhs;
-        big = lhs;
+        for(int32_t y_id: y)
+        {
+            if(!hInSet(y_id, x))
+            {
+                return false;
+            }
+        }
+        return true;
     }
+    return false;
+}
+
+std::vector<size_t> find_belongs(const std::vector<NODE_SET_MARK> &node_sets, const NODE_ID_SET &id_set)
+{
+    std::list<size_t> belong_ids;
+    for(size_t i=0; i<node_sets.size(); ++i)
+    {
+        if(is_subset(node_sets[i].node_ids, id_set))
+        {
+            belong_ids.push_back(i);
+        }
+    }
+    return std::vector<size_t>(belong_ids.begin(), belong_ids.end());
+}
+
+typedef struct NODE_SET_RELATION
+{
+    int set_a;
+    int set_b;
+    NODE_ID_SET inter;
+} NODE_SET_RELATION;
+
+template <typename T>
+bool has_intersection(const std::unordered_set<T> &x, const std::unordered_set<T> &y)
+{
+    for(int y_id: y)
+    {
+        if(hInSet(y_id, x))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+NODE_ID_SET set_intersection(const NODE_ID_SET &x, const NODE_ID_SET &y)
+{
+    std::list<int> intersection_ids;
+    for(int y_id: y)
+    {
+        if(hInSet(y_id, x))
+        {
+            intersection_ids.push_back(y_id);
+        }
+    }
+    return NODE_ID_SET(intersection_ids.begin(), intersection_ids.end());
+}
+
+void extract_set(NODE_ID_SET &x, NODE_ID_SET &y, NODE_ID_SET &intersection)
+{
+    std::list<int> intersection_ids;
+    for(int y_id: y)
+    {
+        if(hInSet(y_id, x))
+        {
+            intersection_ids.push_back(y_id);
+        }
+    }
+    if(!intersection_ids.empty())
+    {
+        //Time the modify x and y.
+        for(int node_id: intersection_ids)
+        {
+            x.erase(node_id);
+            y.erase(node_id);
+        }
+        intersection = NODE_ID_SET(intersection_ids.begin(), intersection_ids.end());
+    }
+}
+
+typedef struct NODE_SET_RELATION_GROUP
+{
+    NODE_ID_SET inter;
+    std::unordered_set<int> set_ids;
+    int relation_count;
+} NODE_SET_RELATION_GROUP;
+
+bool has_cross_ids(const std::vector<NODE_ID_SET> &node_id_sets)
+{
+    //Loop check each pair.
+    for(size_t i=0; i<node_id_sets.size(); ++i)
+    {
+        for(size_t j=i+1; j<node_id_sets.size(); ++j)
+        {
+            if(has_intersection(node_id_sets[i], node_id_sets[j]))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+double group_relation(const NODE_ID_SET &lhs, const NODE_ID_SET &rhs, NODE_INFO *node_info, size_t edge_limit)
+{
     //Loop for all edges in smaller group.
     std::priority_queue<double, std::vector<double>, std::less<double> > weight_queue;
     //Find the first matched ids from the big group.
-    for(int s_id: small->ids)
+    for(int s_id: rhs)
     {
         //The edges are already sorted descending, the first appeared edge is
         //the best match edge.
         const auto &edges = node_info[s_id].edge_map;
         for(const auto &edge: edges)
         {
-            if(in_group(edge.first, big))
+            if(hInSet(edge.first, lhs))
             {
-                //When less than heap size, just insert.
                 if(weight_queue.size() < edge_limit)
                 {
+                    //When less than heap size, just insert.
                     weight_queue.push(edge.second);
                 }
                 else
@@ -188,41 +269,25 @@ double group_relation(HANA_GROUP *lhs, HANA_GROUP *rhs, NODE_INFO *node_info, si
     return relation;
 }
 
-void group_compare(size_t i, size_t j, const std::vector<HANA_GROUP *> &groups, NODE_INFO *node_info, size_t edge_limit,
-                   size_t &max_i, size_t &max_j, double &max_relation)
-{
-    double relation = group_relation(groups[i], groups[j], node_info, edge_limit);
-    if(relation > max_relation)
-    {
-        max_i = i;
-        max_j = j;
-        max_relation = relation;
-    }
-}
+typedef std::unordered_set<int> PIECES_BELONGS;
 
-void thread_group_max_relation(const THREAD_BLOCK &block,
-                               const std::vector<HANA_GROUP *> &core_groups, NODE_INFO *node_info, size_t edge_limit,
-                               size_t *result_i, size_t *result_j, double *result_relation)
+typedef struct PIECES_GROUP
 {
-    //Calculate the start nodes.
-    size_t thread_range = (core_groups.size() + block.total - 1) / block.total;
-    size_t node_start = thread_range * block.idx,
-            node_end = hMin(node_start + thread_range, core_groups.size());
-    size_t max_i = 0, max_j = 0;
-    double max_relation = 0.0;
-    //Complete the thread workload.
-    for(size_t i=node_start; i<node_end; ++i)
-    {
-        for(size_t j=i+1; j<core_groups.size(); ++j)
-        {
-            group_compare(i, j, core_groups, node_info, edge_limit, max_i, max_j, max_relation);
-        }
-    }
-    //Set the answer of the part.
-    *result_i = max_i;
-    *result_j = max_j;
-    *result_relation = max_relation;
-}
+    PIECES_BELONGS belongs;
+    std::unordered_set<int> pieces_ids;
+} PIECES_GROUP;
+
+typedef struct HANA_GROUP
+{
+    NODE_ID_SET ids;
+    size_t length;
+} HANA_GROUP;
+
+typedef struct UNUSED_NODE
+{
+    int node_id;
+    double best_edge;
+} UNUSED_NODE;
 
 typedef struct GROUP_PREDICT
 {
@@ -230,34 +295,27 @@ typedef struct GROUP_PREDICT
     double mark;
 } GROUP_PREDICT;
 
-bool group_predict_compare(const GROUP_PREDICT &lhs, const GROUP_PREDICT &rhs)
-{
-    return lhs.mark > rhs.mark;
-}
+typedef std::vector<GROUP_PREDICT> GROUP_PREDICTION;
 
-std::vector<GROUP_PREDICT> node_predict(
-        int node_id, CONTIG_NODE *nodes, NODE_INFO *node_infos,
-        const std::vector<HANA_GROUP *> &core_groups)
+GROUP_PREDICTION node_predict(int node_id, CONTIG_NODE *nodes, NODE_INFO *node_infos,
+                              const std::vector<HANA_GROUP> &core_groups)
 {
-    //Find the edge limits.
-    size_t edge_limit = 0;
-    for(const HANA_GROUP *group: core_groups)
+    //Loop and find the marking limit.
+    size_t edge_limit = core_groups[0].ids.size();
+    for(size_t i=1; i<core_groups.size(); ++i)
     {
-        if(edge_limit == 0 || group->ids.size())
-        {
-            edge_limit = group->ids.size();
-        }
+        edge_limit = hMin(edge_limit, core_groups[i].ids.size());
     }
     //Loop and generate the weight array for all core groups.
-    std::vector<GROUP_PREDICT> result;
-    result.reserve(core_groups.size());
+    GROUP_PREDICTION results;
+    results.reserve(core_groups.size());
     size_t *edge_counter = new size_t[core_groups.size()];
     for(size_t i=0; i<core_groups.size(); ++i)
     {
         edge_counter[i] = 0;
-        result.push_back(GROUP_PREDICT {static_cast<int>(i), 0.0});
+        results.push_back(GROUP_PREDICT {static_cast<int>(i), -1.0});
     }
-    //From the biggest edges to minimum groups.
+    //Loop and calculate the limit.
     const auto &edges = nodes[node_id].links;
     size_t trust_pos = node_infos[node_id].trust_pos;
     for(size_t edge_id=0; edge_id < edges.size(); ++edge_id)
@@ -265,14 +323,20 @@ std::vector<GROUP_PREDICT> node_predict(
         const auto &edge = edges[edge_id];
         for(size_t i=0; i<core_groups.size(); ++i)
         {
-            if(edge_counter[i] < edge_limit && in_group(edge.id, core_groups[i]))
+            if(edge_counter[i] < edge_limit && hInSet(edge.id, core_groups[i].ids))
             {
                 double edge_w = edge.weight;
+                //Cut the weight if the id is greater than trust pos.
                 if(edge_id > trust_pos)
                 {
                     edge_w /= 2.0;
                 }
-                result[i].mark += edge.weight;
+                //Initial the result.
+                if(results[i].mark < 0)
+                {
+                    results[i].mark = 0.0;
+                }
+                results[i].mark += edge.weight;
                 ++edge_counter[i];
                 break;
             }
@@ -292,448 +356,483 @@ std::vector<GROUP_PREDICT> node_predict(
     }
     delete[] edge_counter;
     //Sort the result.
-    std::sort(result.begin(), result.end(), group_predict_compare);
-    //Generate the group predict result.
-    return result;
+    std::sort(results.begin(), results.end(), [](const GROUP_PREDICT &lhs, const GROUP_PREDICT &rhs) {
+        return lhs.mark > rhs.mark;
+    });
+    return results;
 }
-
-bool dual_linear_detect(const std::vector<double> &marks)
-{
-    if(marks.size() < 2)
-    {
-        return true;
-    }
-    double best_left_k, best_left_b, best_right_k, best_right_b, best_loss = -1.0;
-    //Generate the x and y groups.
-    for(size_t i=1, i_max = hMin(4, static_cast<int>(marks.size()>>1)); i<=i_max; ++i)
-    {
-        size_t left_bound = i + 1;
-        //Fit the left side.
-        double left_k, left_b, right_k, right_b;
-        std::vector<double> left_x, left_y;
-        for(size_t j=0; j<left_bound; ++j)
-        {
-            left_x.push_back(static_cast<double>(j));
-            left_y.push_back(marks[j]);
-        }
-        fit_linear(left_x, left_y, left_k, left_b);
-        std::vector<double> right_x, right_y;
-        for(size_t j=i; j<marks.size(); ++j)
-        {
-            right_x.push_back(static_cast<double>(j));
-            right_y.push_back(marks[j]);
-        }
-        fit_linear(right_x, right_y, right_k, right_b);
-        //Calculate the total loss.
-        double total_loss = linear_loss(left_x, left_y, left_k, left_b) +
-                linear_loss(right_x, right_y, right_k, right_b);
-        if(best_loss < 0.0 || total_loss < best_loss)
-        {
-            best_left_k = left_k;
-            best_left_b = left_b;
-            best_right_k = right_k;
-            best_right_b = right_b;
-            best_loss = total_loss;
-        }
-    }
-    //Find the cross point X.
-    double x = (best_right_b - best_left_b) / (best_left_k - best_right_k);
-//    printf("%lf\n", x);
-//    for(double k: marks)
-//    {
-//        printf("%lf\t", k);
-//    }
-//    printf("\n");
-    //It should close to 1.0. Which is the first point.
-    return x < 1.5;
-}
-
-typedef struct NODE_MARK
-{
-    int id;
-    size_t mark;
-} NODE_MARK;
 
 void group_hanamaru(CONTIG_NODE *nodes, size_t node_size, int no_of_group, int threads,
                     std::vector<std::vector<int> > &groups, std::list<int> &unknown_ids)
 {
-    time_print("Find trusted edges...");
+    time_print("Generating node informations...");
     NODE_INFO *node_infos = new NODE_INFO[node_size];
-    //Initial the node information.
-    for(size_t i=0; i<node_size; ++i)
+    std::unordered_set<int> best_nodes;
     {
-        //Initial the parent.
-        node_infos[i].parent = NULL;
-        node_infos[i].node = &(nodes[i]);
-        //Create the edge map.
-        auto &edges = nodes[i].links;
-        std::sort(edges.begin(), edges.end(), [](const CONTIG_EDGE &lhs, const CONTIG_EDGE &rhs) {
-            return lhs.weight > rhs.weight;
-        });
-        //Construct the edge map.
-        auto &edge_map = node_infos[i].edge_map;
-        for(const auto &edge: edges)
+        size_t trust_edge_size = (node_size * node_size) >> 2;
+        std::priority_queue<TRUST_EDGE, std::vector<TRUST_EDGE>, decltype(&compare_trust_edge)> best_edge_queue(compare_trust_edge);
+        //Initial the node information.
+        for(size_t i=0; i<node_size; ++i)
         {
-            edge_map.insert(std::make_pair(edge.id, edge.weight));
-        }
-        //Calculate the trust edge size.
-        node_infos[i].trust_pos = 0;
-        if(edges.size() > 2)
-        {
-            //Calculate the deviation.
-            std::vector<double> edge_weights;
-            edge_weights.reserve(edges.size());
+            //Initial the parent.
+            node_infos[i].node = &(nodes[i]);
+            //Create the edge map.
+            auto &edges = nodes[i].links;
+            std::sort(edges.begin(), edges.end(), [](const CONTIG_EDGE &lhs, const CONTIG_EDGE &rhs) {
+                return lhs.weight > rhs.weight;
+            });
+            //Construct the edge map.
+            auto &edge_map = node_infos[i].edge_map;
             for(const auto &edge: edges)
             {
-                //Calculate the difference of the left and right side.
-                edge_weights.push_back(edge.weight);
-            }
-            //Calculate the 1st derivative result.
-            std::vector<double> median_diff_deri = derivative(edge_weights);
-            //Find the maximum position of the derivcative.
-            node_infos[i].trust_pos = maximum_pos(median_diff_deri) + 1;
-        }
-        else
-        {
-            node_infos[i].trust_pos = 1;
-        }
-    }
-    //Normalized node ranking.
-    time_print("Ranking nodes for HANA stage...");
-    int mark_range = static_cast<int>(node_size) / no_of_group / 2;
-    int *marks;
-    generate_mark(&marks, mark_range);
-    NODE_MARK *node_marks = new NODE_MARK[node_size];
-    for(size_t i=0; i<node_size; ++i)
-    {
-        node_marks[i] = NODE_MARK {static_cast<int>(i), 0};
-    }
-    for(size_t i=0; i<node_size; ++i)
-    {
-        const auto &edges = nodes[i].links;
-        int node_mark_range = hMin(mark_range, static_cast<int>(edges.size()));
-        for(int j=0; j<node_mark_range; ++j)
-        {
-            node_marks[edges[j].id].mark += marks[j];
-        }
-    }
-    //Sort the nodes as mark.
-    std::sort(node_marks, node_marks+node_size,
-              [](const NODE_MARK &lhs, const NODE_MARK &rhs) {
-        return lhs.mark > rhs.mark;
-    });
-
-
-    // -- HANA Stage --
-    //Top level nodes should be the central part of the chromosome.
-    time_print("HANA stage start...");
-    std::vector<HANA_GROUP *> chr_groups;
-    {
-        std::unordered_set<int> hana_nodes;
-        //Hyper-parameter: hana_size
-        //Determines the central part.
-        size_t hana_size = node_size / 2;
-//        for(size_t i=0; i<hana_size; ++i)
-//        {
-//            int node_id = node_marks[i].id;
-//            printf("%s\t", nodes[node_id].name);
-//            auto &es = nodes[node_id].links;
-//            for(int j=0; j<8; ++j)
-//            {
-//                auto &e = es[j];
-//                printf("%s %lf", nodes[e.id].name, e.weight);
-//                if(node_infos[node_id].trust_pos == j+1)
-//                {
-//                    printf("|");
-//                }
-//                printf("\t");
-//            }
-//            printf("\n");
-//        }
-//        exit(-1);
-        time_print("Classify best ranking %zu node(s)...", hana_size);
-        for(size_t i=0; i<hana_size; ++i)
-        {
-            hana_nodes.insert(node_marks[i].id);
-
-        }
-        //Based on the trust edges, build the core groups.
-        //Classify the hana nodes.
-        size_t group_counter = 0;
-        for(size_t i=0; i<hana_size; ++i)
-        {
-            const int node_id = node_marks[i].id;
-            //Only check the nodes whose parent is NULL.
-            if(node_infos[node_id].parent)
-            {
-                continue;
-            }
-            //Create the group for the node.
-            HANA_GROUP *group = new HANA_GROUP();
-            group->length = 0;
-            ++group_counter;
-            //Search all the trust edges.
-            std::list<int> search_id_queue;
-            search_id_queue.push_back(node_id);
-            while(!search_id_queue.empty())
-            {
-                //Pop the search id.
-                int head_id = search_id_queue.front();
-                search_id_queue.pop_front();
-                //Check whether this node is already added to the group.
-                if(in_group(head_id, group))
+                edge_map.insert(std::make_pair(edge.id, edge.weight));
+                //Append the edge information to best edge.
+                TRUST_EDGE edge_info {static_cast<int>(i), edge.id, edge.weight};
+                if(best_edge_queue.size() < trust_edge_size)
                 {
-                    continue;
+                    //Directly add the edge to the queue.
+                    best_edge_queue.push(edge_info);
                 }
-                //Push head id into group.
-                node_merge(group, head_id, node_infos);
-                //Update the node info.
-                auto &head_info = node_infos[head_id];
-                auto &head_edges = nodes[head_id].links;
-                //Insert the trust edge node ids into group.
-                for(size_t j=0; j<head_info.trust_pos; ++j)
+                else
                 {
-                    const int edge_id = head_edges[j].id;
-                    //The target node is HANA node.
-                    if(node_infos[edge_id].parent == NULL && //The node is not in any group.
-//                            hInSet(edge_id, hana_nodes) &&   //The node must be a trusted nodes.
-                            !in_group(edge_id, group))       //The node is not in the current group.
+                    if(best_edge_queue.top().weight < edge.weight)
                     {
-                        if(!hInSet(edge_id, hana_nodes))
-                        {
-                            hana_nodes.insert(edge_id);
-                        }
-                        search_id_queue.push_back(edge_id);
+                        //Insert it.
+                        best_edge_queue.pop();
+                        best_edge_queue.push(edge_info);
                     }
                 }
             }
-        }
-        time_print("First round complete, %zu group(s) generated.", group_counter);
-        time_print("Keep merging trust edges...");
-        //Loop until all the trust edges are combined.
-        bool is_merged = true;
-        while(is_merged)
-        {
-            is_merged = false;
-            for(size_t i=0; i<hana_size; ++i)
+            //Calculate the trust edge size.
+            node_infos[i].trust_pos = 0;
+            if(edges.size() > 2)
             {
-                //Check from the start.
-                const int node_id = node_marks[i].id;
-                const auto &edges = nodes[node_id].links;
-                auto &node_info = node_infos[node_id];
-                //Check for all the trust edges.
-                for(size_t j=0; j<node_info.trust_pos; ++j)
+                //Calculate the deviation.
+                std::vector<double> edge_weights;
+                edge_weights.reserve(edges.size());
+                for(const auto &edge: edges)
                 {
-                    const int edge_id = edges[j].id;
-                    if(hInSet(edge_id, hana_nodes) && node_infos[edge_id].parent != node_info.parent)
-                    {
-                        //Merge two group into a single group.
-                        group_merge(node_info.parent, node_infos[edge_id].parent, node_infos);
-                        is_merged = true;
-                        break;
-                    }
+                    //Calculate the difference of the left and right side.
+                    edge_weights.push_back(edge.weight);
                 }
-                if(is_merged)
-                {
-                    break;
-                }
-            }
-        }
-        //Summarize the groups and nodes.
-        std::unordered_set<HANA_GROUP *> core_groups;
-        for(size_t i=0; i<hana_size; ++i)
-        {
-            core_groups.insert(node_infos[node_marks[i].id].parent);
-        }
-        time_print("%zu group(s) generated.", core_groups.size());
-        // ---- Definitely correct above ----
-
-        // ---- Experiment codes ----
-//        for(auto t: core_groups)
-//        {
-//            printf("-> %zu", t->ids.size());
-//            size_t s=0;
-//            for(auto nid: t->ids)
-//            {
-//                s += nodes[nid].length;
-//            }
-//            printf(" size: %zu\n", s);
-//            for(auto nid: t->ids)
-//            {
-//                printf("%s\n", nodes[nid].name);
-//            }
-//            printf("--------\n");
-//        }
-//        for(int node_id: singles)
-//        {
-//            printf("%s\t", nodes[node_id].name);
-//            auto &es = nodes[node_id].links;
-//            for(int j=0; j<8; ++j)
-//            {
-//                auto &e = es[j];
-//                printf("%s %lf %zu", nodes[e.id].name, e.weight, node_infos[e.id].parent);
-//                if(node_infos[node_id].trust_pos == j+1)
-//                {
-//                    printf("|");
-//                }
-//                printf("\t");
-//            }
-//            printf("\n");
-//        }
-//        exit(-1);
-        //Keep merge the groups until to the number of groups.
-        time_print("Generating core groups...");
-        size_t *max_is = new size_t[threads], *max_js = new size_t[threads];
-        double *max_relations = new double[threads];
-        //Generate workers.
-        std::thread *workers = new std::thread[threads];
-        while(core_groups.size() > static_cast<size_t>(no_of_group))
-        {
-            std::vector<HANA_GROUP *> core_group_list(core_groups.begin(), core_groups.end());
-            //Use the size of minimum nodes group as the limitation.
-            size_t edge_limit = 0;
-            for(size_t i=0; i<core_group_list.size(); ++i)
-            {
-                if(edge_limit == 0 || core_group_list[i]->ids.size() < edge_limit)
-                {
-                    edge_limit = core_group_list[i]->ids.size();
-                    //Reach the least minimum, ignore all the others.
-                    if(edge_limit == 2)
-                    {
-                        break;
-                    }
-                }
-            }
-//            edge_limit <<= 1;
-
-            //Find the best matched group.
-            size_t max_i, max_j;
-            double max_relation = -1.0;
-            {
-//                std::sort(core_group_list.begin(), core_group_list.end(), [](HANA_GROUP *left, HANA_GROUP *right)
-//                {
-//                    return left->ids.size() < right->ids.size();
-//                });
-                std::sort(core_group_list.begin(), core_group_list.end(), [](HANA_GROUP *left, HANA_GROUP *right)
-                {
-                    return left->length < right->length;
-                });
-
-                for(size_t j=1; j<core_group_list.size(); ++j)
-                {
-                    group_compare(0, j, core_group_list, node_infos, edge_limit,
-                                  max_i, max_j, max_relation);
-                }
-            }
-
-//            {
-//                printf("Best matching!!\n");
-                // -- Single thread --
-//                {
-//                    for(size_t i=0; i<core_group_list.size() - 1; ++i)
-//                    {
-//                        for(size_t j=i+1; j<core_group_list.size(); ++j)
-//                        {
-//                            group_compare(i, j, core_group_list, node_infos, edge_limit,
-//                                          max_i, max_j, max_relation);
-//                        }
-//                    }
-//                }
-//                // -- Single thread end --
-//                //            // -- Multi thread --
-//                //            {
-//                //                //Prepare the result area.
-
-//                //                for(int i=0; i<threads; ++i)
-//                //                {
-//                //                    max_relations[i] = 0.0;
-//                //                    workers[i] = std::thread(thread_group_max_relation, THREAD_BLOCK{i, threads}, core_group_list, node_infos, edge_limit,
-//                //                                             &max_is[i], &max_js[i], &max_relations[i]);
-//                //                }
-//                //                for(int i=0; i<threads; ++i)
-//                //                {
-//                //                    workers[i].join();
-//                //                    if(max_relations[i] > max_relation)
-//                //                    {
-//                //                        max_i = max_is[i];
-//                //                        max_j = max_js[i];
-//                //                        max_relation = max_relations[i];
-//                //                    }
-//                //                }
-//                //            }
-//            }
-            // -- Multi thread end --
-            //Merge group[max_j] to group[max_i].
-//            printf("Merge: (limits: %zu, weight: %lf) nodes: %zu + %zu = %zu\tlength: %zu + %zu = %zu)\n",
-//                   edge_limit, max_relation,
-//                   core_group_list[max_j]->ids.size(), core_group_list[max_i]->ids.size(), core_group_list[max_j]->ids.size()+core_group_list[max_i]->ids.size(),
-//                   core_group_list[max_j]->length, core_group_list[max_i]->length, core_group_list[max_j]->length+core_group_list[max_i]->length);
-//            for(int nid: core_group_list[max_j]->ids)
-//            {
-//                printf("%s\t%d\n", nodes[nid].name, nid);
-//            }
-//            printf("to:\n");
-//            for(int nid: core_group_list[max_i]->ids)
-//            {
-//                printf("%s\t%d\n", nodes[nid].name, nid);
-//            }
-            core_groups.erase(core_group_list[max_j]);
-            group_merge(core_group_list[max_i], core_group_list[max_j], node_infos);
-//            printf("==============\n");
-//            time_print_size("%zu groups remain.", core_groups.size());
-        }
-        delete[] workers;
-        delete[] max_is;
-        delete[] max_js;
-        delete[] max_relations;
-        //Merge the rest of the trust nodes to core groups.
-        chr_groups = std::vector<HANA_GROUP *>(core_groups.begin(), core_groups.end());
-        time_print("%zu core groups generated.", chr_groups.size());
-    }
-
-    // -- MARU Stage --
-    time_print("Classifying individual nodes...");
-    for(size_t i=0; i<node_size; ++i)
-    {
-        if(node_infos[i].parent == NULL)
-        {
-            //Predict the group of node it should be.
-            std::vector<GROUP_PREDICT> predict = node_predict(static_cast<int>(i), nodes, node_infos, chr_groups);
-            //Check whether the prediction result is correct.
-            std::vector<double> marks;
-            marks.reserve(predict.size());
-            for(const auto &result: predict)
-            {
-                marks.push_back(result.mark);
-            }
-            if(dual_linear_detect(marks))
-            {
-                //Apply the predicted merge action.
-                const auto &action = predict[0];
-                node_merge(chr_groups[action.group_id], i, node_infos);
+                //Calculate the 1st derivative result.
+                std::vector<double> median_diff_deri = derivative(edge_weights);
+                //Find the maximum position of the derivcative.
+                node_infos[i].trust_pos = maximum_pos(median_diff_deri) + 1;
             }
             else
             {
-                //This node is detected as defected node.
-                time_print("Ambiguous contig '%s' is marked as unknown.", nodes[i].name);
-                unknown_ids.push_back(static_cast<int>(i));
+                node_infos[i].trust_pos = 1;
+            }
+        }
+        //Gather the trust edges.
+        size_t edge_size = best_edge_queue.size(), edge_size_1 = edge_size - 1;
+        std::vector<TRUST_EDGE> best_edges;
+        best_edges.resize(edge_size);
+        for(size_t i=0; i<edge_size; ++i)
+        {
+            best_edges[edge_size_1 - i] = best_edge_queue.top();
+            best_edge_queue.pop();
+        }
+        //Pick up the best nodes.
+        size_t expected_nodes = node_size >> 1, edge_id = 0;
+        while(best_nodes.size() < expected_nodes && edge_id < edge_size)
+        {
+            const auto &edge = best_edges[edge_id];
+            best_nodes.insert(edge.start);
+            best_nodes.insert(edge.end);
+            ++edge_id;
+        }
+    }
+
+    // -- HANA Stage --
+    time_print("HANA Stage...");
+    std::vector<NODE_SET_MARK> node_set_marks;
+    {
+        std::vector<EDGE_VOTE_RESULT> edge_vote_results;
+        EDGE_VOTER edge_voter;
+        //Vote the best edges from the best nodes.
+        size_t vote_edge_range = no_of_group * 2;
+        time_print("GCN for edges, window size: %zu", vote_edge_range);
+        for(int node_id: best_nodes)
+        {
+            const auto &edge_list = nodes[node_id].links;
+            size_t edge_list_range = hMin(vote_edge_range, edge_list.size());
+            for(size_t i=0; i<edge_list_range; ++i)
+            {
+                if(hInSet(edge_list[i].id, best_nodes))
+                {
+                    vote_edge(edge_voter, node_id, edge_list[i].id, node_id);
+                }
+            }
+            for(size_t i=0; i<edge_list_range-1; ++i)
+            {
+                const int32_t i_id = edge_list[i].id;
+                if(!hInSet(i_id, best_nodes))
+                {
+                    continue;
+                }
+                for(size_t j=i+1; j<edge_list_range; ++j)
+                {
+                    if(hInSet(edge_list[j].id, best_nodes))
+                    {
+                        vote_edge(edge_voter, i_id, edge_list[j].id, node_id);
+                    }
+                }
+            }
+        }
+        //Sort the edge voting result.
+        edge_vote_results.reserve(edge_voter.size());
+        for(auto edge_vote: edge_voter)
+        {
+            edge_vote_results.push_back(EDGE_VOTE_RESULT {edge_vote.first, edge_vote.second.size()});
+        }
+        std::sort(edge_vote_results.begin(), edge_vote_results.end(), [](const EDGE_VOTE_RESULT &lhs, const EDGE_VOTE_RESULT &rhs) {
+            return lhs.votes > rhs.votes;
+        });
+        //Extract the expected node id group.
+        time_print("Extracting node set from the trusted edges...");
+        node_set_marks.reserve(edge_vote_results.size());
+        for(const auto &edge_result: edge_vote_results)
+        {
+            const auto node_set = edge_voter.find(edge_result.edge)->second;
+            std::vector<size_t> subset_ids = find_belongs(node_set_marks, node_set);
+            if(subset_ids.empty())
+            {
+                //Add this node set to the node set marks.
+                node_set_marks.push_back(NODE_SET_MARK {node_set, 0});
+            }
+            else
+            {
+                for(size_t set_id: subset_ids)
+                {
+                    ++node_set_marks[set_id].subsets;
+                }
+            }
+        }
+        //Find out the subset marks.
+        node_set_marks.reserve(node_set_marks.size());
+        std::sort(node_set_marks.begin(), node_set_marks.end(), [](const NODE_SET_MARK &lhs, const NODE_SET_MARK &rhs) {
+            return lhs.subsets > rhs.subsets;
+        });
+    }
+    //Calculate the intersection of the node sets.
+    time_print("Finding the intersection of the node sets...");
+    std::vector<NODE_SET_RELATION> node_set_relations;
+    node_set_relations.reserve(node_set_marks.size() * node_set_marks.size());
+    for(size_t i=0; i<node_set_marks.size()-1; ++i)
+    {
+        const NODE_ID_SET &i_set = node_set_marks[i].node_ids;
+        for(size_t j=i+1; j<node_set_marks.size(); ++j)
+        {
+            NODE_ID_SET inter = set_intersection(i_set, node_set_marks[j].node_ids);
+            if(inter.size() > 1)
+            {
+                node_set_relations.push_back(
+                            NODE_SET_RELATION {static_cast<int>(i),
+                                               static_cast<int>(j), inter});
             }
         }
     }
-    time_print("%zu group(s) are generated.", chr_groups.size());
-    //Generate the group ids.
-    groups.reserve(chr_groups.size());
-    for(HANA_GROUP *group: chr_groups)
+    node_set_relations.reserve(node_set_relations.size());
+    std::sort(node_set_relations.begin(), node_set_relations.end(),
+              [](const NODE_SET_RELATION &lhs, const NODE_SET_RELATION &rhs) {
+        return lhs.inter.size() > rhs.inter.size();
+    });
+    //Find out the largest subset of the relations.
+    time_print("Merging the intersection of the node sets...");
+    std::vector<NODE_SET_RELATION_GROUP> relation_groups;
+    relation_groups.reserve(node_set_relations.size());
+    for(const auto &relation: node_set_relations)
     {
-        //Add node ids to group.
-        std::vector<int> node_ids(group->ids.begin(), group->ids.end());
-        groups.push_back(node_ids);
-        time_print("\tGroup %2zu: %zu contig(s).", groups.size(), node_ids.size());
-        //Delete the group.
-        delete group;
+        //Add relation to relation groups.
+        bool relation_added = false;
+        for(auto &relation_group: relation_groups)
+        {
+            if(is_subset(relation_group.inter, relation.inter))
+            {
+                //Add the set id to relation group.
+                relation_group.set_ids.insert(relation.set_a);
+                relation_group.set_ids.insert(relation.set_b);
+                ++relation_group.relation_count;
+                relation_added = true;
+                break;
+            }
+        }
+        if(!relation_added)
+        {
+            std::unordered_set<int> set_ids;
+            set_ids.insert(relation.set_a);
+            set_ids.insert(relation.set_b);
+            relation_groups.push_back(NODE_SET_RELATION_GROUP {relation.inter, set_ids, 1});
+        }
     }
+    std::sort(relation_groups.begin(), relation_groups.end(),
+              [](const NODE_SET_RELATION_GROUP &lhs, const NODE_SET_RELATION_GROUP &rhs) {
+        return lhs.relation_count > rhs.relation_count;
+    });
+    time_print("%zu node sets generaeted.", relation_groups.size());
+    //Create the node sets by merging the most common relation groups.
+    time_print("Find the greatest no-intersection union...");
+    std::vector<NODE_ID_SET> node_set_guess;
+    {
+        std::vector<NODE_ID_SET> relation_guess;
+        relation_guess.reserve(relation_groups.size());
+        for(auto relation_group: relation_groups)
+        {
+            NODE_ID_SET node_ids;
+            for(int set_id: relation_group.set_ids)
+            {
+                const auto &node_id_set = node_set_marks[set_id].node_ids;
+                node_ids.insert(node_id_set.begin(), node_id_set.end());
+            }
+            relation_guess.push_back(node_ids);
+        }
+        std::sort(relation_guess.begin(), relation_guess.end(),
+                  [](const NODE_ID_SET &lhs, const NODE_ID_SET &rhs) {
+            return lhs.size() > rhs.size();
+        });
+        //Filter the unique set.
+        node_set_guess.reserve(relation_groups.size());
+        for(auto node_set: relation_guess)
+        {
+            bool not_exist = true;
+            for(auto existed_node_set: node_set_guess)
+            {
+                if(is_subset(existed_node_set, node_set))
+                {
+                    not_exist = false;
+                    break;
+                }
+            }
+            if(not_exist)
+            {
+                node_set_guess.push_back(node_set);
+            }
+        }
+    }
+    //Deep copy the node set guess.
+    std::vector<NODE_ID_SET> node_set_pieces;
+    node_set_pieces.reserve(node_set_guess.size());
+    for(const auto &node_set: node_set_guess)
+    {
+        node_set_pieces.push_back(NODE_ID_SET(node_set.begin(), node_set.end()));
+    }
+    //Keep finding the common parts of the guessed core sets.
+    while(has_cross_ids(node_set_pieces))
+    {
+        for(size_t i=0; i<node_set_pieces.size()-1; ++i)
+        {
+            auto &i_set = node_set_pieces[i];
+            bool group_break = false;
+            for(size_t j=i+1; j<node_set_pieces.size(); ++j)
+            {
+                //Update the new common sets.
+                auto i_j_intersection = set_intersection(i_set, node_set_pieces[j]);
+                if(!i_j_intersection.empty())
+                {
+                    //Break i, j into three set.
+                    auto &j_set = node_set_pieces[j];
+                    NODE_ID_SET i_j_common;
+                    extract_set(i_set, j_set, i_j_common);
+                    if(!i_j_common.empty())
+                    {
+                        if(j_set.empty())
+                        {
+                            node_set_pieces.erase(node_set_pieces.begin() + j);
+                        }
+                        if(i_set.empty())
+                        {
+                            node_set_pieces.erase(node_set_pieces.begin() + i);
+                        }
+                        node_set_pieces.push_back(i_j_common);
+                        std::sort(node_set_pieces.begin(), node_set_pieces.end(), [](const NODE_ID_SET &lhs, const NODE_ID_SET &rhs) {
+                            return lhs.size() > rhs.size();
+                        });
+                        group_break = true;
+                        break;
+                    }
+                }
+            }
+            if(group_break)
+            {
+                break;
+            }
+        }
+    }
+    //Filtered the uncertained nodes.
+    size_t uncertain_edge = 0;
+    for(size_t i=0; i<node_set_pieces.size(); ++i)
+    {
+        if(node_set_pieces[i].size() == 1)
+        {
+            uncertain_edge = i;
+            break;
+        }
+    }
+    if(uncertain_edge > 0)
+    {
+        node_set_pieces.resize(uncertain_edge);
+    }
+    time_print("%zu group pieces generated.", node_set_pieces.size());
+    //Now merged groups into target groups, always merge the minimum size into the larger groups.
+    time_print("Merging into core groups...");
+    std::vector<PIECES_BELONGS> pieces_belongs;
+    pieces_belongs.reserve(node_set_pieces.size());
+    for(size_t i=0; i<node_set_pieces.size(); ++i)
+    {
+        const auto &node_set_piece = node_set_pieces[i];
+        std::unordered_set<int> belongs;
+        for(size_t j=0; j<node_set_guess.size(); ++j)
+        {
+            if(is_subset(node_set_guess[j], node_set_piece))
+            {
+                belongs.insert(static_cast<int>(j));
+            }
+        }
+        pieces_belongs.push_back(belongs);
+    }
+    //Merge the pieces into bigger groups.
+    std::vector<PIECES_GROUP> pieces_groups;
+    pieces_groups.reserve(pieces_belongs.size());
+    for(size_t i=0; i<pieces_belongs.size(); ++i)
+    {
+        const auto &belongs = pieces_belongs[i];
+        //Loop and check whether it has intersect with the nodes.
+        bool group_new = true;
+        for(size_t j=0; j<pieces_groups.size(); ++j)
+        {
+            auto &pieces_group = pieces_groups[j];
+            if(has_intersection(pieces_group.belongs, belongs))
+            {
+                //Merge the belongs into groups.
+                pieces_group.belongs.insert(belongs.begin(), belongs.end());
+                pieces_group.pieces_ids.insert(static_cast<int>(i));
+                group_new = false;
+                break;
+            }
+        }
+        //Check shall we insert a new group.
+        if(group_new)
+        {
+            std::unordered_set<int> pieces_ids;
+            pieces_ids.insert(static_cast<int>(i));
+            pieces_groups.push_back(PIECES_GROUP {belongs, pieces_ids});
+        }
+    }
+    pieces_groups.reserve(pieces_groups.size());
+    //Merge the pieces into groups.
+    std::vector<HANA_GROUP> core_groups;
+    core_groups.reserve(pieces_groups.size());
+    for(size_t i=0; i<pieces_groups.size(); ++i)
+    {
+        NODE_ID_SET core_group;
+        for(int piece_id: pieces_groups[i].pieces_ids)
+        {
+            const auto &node_id_piece = node_set_pieces[piece_id];
+            core_group.insert(node_id_piece.begin(), node_id_piece.end());
+        }
+        size_t length = 0;
+        for(int node_id: core_group)
+        {
+            length += nodes[node_id].length;
+        }
+        core_groups.push_back(HANA_GROUP {core_group, length});
+    }
+    time_print("%zu core groups generated.", pieces_groups.size());
+    //Keep merge to the no of group.
+    time_print("Merged to target groups.", pieces_groups.size());
+    while(core_groups.size() > static_cast<size_t>(no_of_group))
+    {
+        //Find the limitation.
+        size_t relation_limit = core_groups[0].ids.size();
+        for(size_t i=1; i<core_groups.size(); ++i)
+        {
+            if(core_groups[i].ids.size() < relation_limit)
+            {
+                relation_limit = core_groups[i].ids.size();
+            }
+        }
+        relation_limit <<= 1;
+        //Extract the top group.
+        size_t best_i = 0, best_j = 0;
+        double max_relation = -1.0;
+        for(size_t i=0; i<core_groups.size()-1; ++i)
+        {
+            const auto &set_i = core_groups[i];
+            for(size_t j=i+1; j<core_groups.size(); ++j)
+            {
+                double relation_i_j = group_relation(set_i.ids, core_groups[j].ids, node_infos, relation_limit) / static_cast<double>(hMin(set_i.length, core_groups[j].length));
+                if(relation_i_j > max_relation)
+                {
+                    best_i = i;
+                    best_j = j;
+                    max_relation = relation_i_j;
+                }
+            }
+        }
+        //Merge group i and group j.
+        core_groups[best_i].ids.insert(core_groups[best_j].ids.begin(), core_groups[best_j].ids.end());
+        core_groups.erase(core_groups.begin() + best_j);
+    }
+    time_print("%zu groups generated.", core_groups.size());
+    time_print("MARU Stage...");
+    //Find all the rest of the nodes.
+    std::unordered_set<int> used_nodes;
+    for(size_t i=0; i<core_groups.size(); ++i)
+    {
+        used_nodes.insert(core_groups[i].ids.begin(), core_groups[i].ids.end());
+    }
+    std::unordered_set<int> unused_nodes;
+    unused_nodes.reserve(node_size - used_nodes.size());
+    for(size_t i=0; i<node_size; ++i)
+    {
+        if(!hInSet(static_cast<int>(i), used_nodes))
+        {
+            unused_nodes.insert(static_cast<int>(i));
+        }
+    }
+    //Goes from top to bottom, find out the best matching group.
+    while(!unused_nodes.empty())
+    {
+        int best_node_id = -1, best_group_id = -1;
+        double best_weight = -1.0;
+        //Predict all the nodes.
+        for(const int node_id: unused_nodes)
+        {
+            //Predict the node belonging result.
+            GROUP_PREDICTION predicts = node_predict(node_id, nodes, node_infos, core_groups);
+            //Pick the best matching group.
+            const auto &best_predict = predicts[0];
+            //Assign the best prediction.
+            if(best_predict.mark > best_weight)
+            {
+                best_node_id = node_id;
+                best_group_id = best_predict.group_id;
+                best_weight = best_predict.mark;
+            }
+        }
+        //Pick the top one as the best node id.
+        if(best_weight < 0.0)
+        {
+            //Bad things happens.
+            break;
+        }
+        //Merged our choices.
+        core_groups[best_group_id].ids.insert(best_node_id);
+        core_groups[best_group_id].length += nodes[best_node_id].length;
+        //Remove the node id from the set.
+        unused_nodes.erase(best_node_id);
+    }
+    //Dump the data to output parameters.
+    groups = std::vector<std::vector<int> >();
+    groups.reserve(core_groups.size());
+    for(auto core_group: core_groups)
+    {
+        groups.push_back(std::vector<int>(core_group.ids.begin(), core_group.ids.end()));
+    }
+    //Generaete unknown ids.
+    unknown_ids = std::list<int>(unused_nodes.begin(), unused_nodes.end());
     //Free the memory.
-    delete[] node_marks;
-    delete[] marks;
     delete[] node_infos;
 }
