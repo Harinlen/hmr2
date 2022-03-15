@@ -36,6 +36,6 @@ void optimize_direction(POLAR_INFO &polar_infos)
             minus_distance += pair.pos;
         }
         //Decide the direction.
-        polar_infos[i].plus = plus_distance > minus_distance;
+        polar_infos[i].plus = plus_distance < minus_distance;
     }
 }

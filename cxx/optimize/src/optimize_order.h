@@ -1,7 +1,7 @@
 #ifndef OPTIMIZE_ORDER_H
 #define OPTIMIZE_ORDER_H
 
-#include <map>
+#include <unordered_map>
 #include <vector>
 
 typedef std::vector<int> SEQUENCE;
@@ -12,13 +12,11 @@ typedef struct ORDER_EDGE
     int32_t order;
 } ORDER_EDGE;
 
-typedef std::map<int32_t, ORDER_EDGE> ORDER_EDGE_MAP;
+typedef std::unordered_map<int32_t, ORDER_EDGE> ORDER_EDGE_MAP;
 
 typedef struct ORDER_NODE_INFO
 {
-    SEQUENCE *parent;
-    double penalty;
-    int32_t prev_order, next_order;
+    int32_t node_id;
     ORDER_EDGE_MAP edge_map;
 } ORDER_NODE_INFO;
 

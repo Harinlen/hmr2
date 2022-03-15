@@ -452,7 +452,7 @@ void group_hanamaru(CONTIG_NODE *nodes, size_t node_size, int no_of_group, int t
         std::vector<EDGE_VOTE_RESULT> edge_vote_results;
         EDGE_VOTER edge_voter;
         //Vote the best edges from the best nodes.
-        size_t vote_edge_range = no_of_group * 2;
+        size_t vote_edge_range = 10;
         time_print("GCN for edges, window size: %zu", vote_edge_range);
         for(int node_id: best_nodes)
         {
