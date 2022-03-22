@@ -1,5 +1,6 @@
 #include <cstdlib>
 #include <cassert>
+#include <cstring>
 #include <zlib.h>
 
 #include "hmr_ui.h"
@@ -52,6 +53,7 @@ void hmr_gzip_parse(FILE *gz_file, HMR_BIN_QUEUE *queue)
     //Read the file to buffer.
     assert(NULL != gz_buffer);
     size_t gz_file_offset = 0;
+    assert(gz_buffer != NULL);
     size_t gz_buffer_size = gz_file_offset = fread(gz_buffer, 1, DATA_CHUNK, gz_file);
     //Configure the stream.
     strm.next_in = reinterpret_cast<Bytef *>(gz_buffer);
@@ -102,7 +104,7 @@ void hmr_gzip_parse(FILE *gz_file, HMR_BIN_QUEUE *queue)
     inflateEnd(&strm);
 }
 
-HMR_GZ_HANDLER *hmr_gz_open(const char *filepath)
+HMR_GZ_HANDLER *hmr_gz_open_read(const char *filepath)
 {
     //Read the GZIP file.
     HMR_GZ_HANDLER *gz_handler = new HMR_GZ_HANDLER();
@@ -127,7 +129,7 @@ HMR_GZ_HANDLER *hmr_gz_open(const char *filepath)
     return gz_handler;
 }
 
-void hmr_gz_close(HMR_GZ_HANDLER* gz_handler)
+void hmr_gz_close_read(HMR_GZ_HANDLER* gz_handler)
 {
     //Check whether the queue is marked as finished.
     if (!gz_handler->queue->finish)

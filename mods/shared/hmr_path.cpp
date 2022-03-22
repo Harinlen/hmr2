@@ -1,3 +1,5 @@
+#include <cstring>
+
 #include "hmr_bin_file.h"
 
 #include "hmr_path.h"

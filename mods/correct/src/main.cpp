@@ -23,7 +23,7 @@ int main(int argc, char* argv[])
     if (!opts.fasta) { help_exit(-1, "Missing FASTA file path."); }
     if (!path_can_read(opts.fasta)) { time_error(-1, "Cannot read FASTA file %s", opts.fasta); }
     if (opts.mappings.empty()) { help_exit(-1, "Missing Hi-C mapping file path."); }
-    if (!opts.output) { help_exit(-1, "Missing corrected FASTA file path."); }
+    if (!opts.output) { help_exit(-1, "Missing output corrected FASTA file path."); }
     //Try to write to output FASTA file.
     MISMATCH_CORRECTING corrected_file;
     mismatch_correct_open(opts.output, &corrected_file);

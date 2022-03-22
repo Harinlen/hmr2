@@ -15,7 +15,7 @@ typedef struct HMR_GZ_HANDLER
     std::thread parse_thread;
 } HMR_GZ_HANDLER;
 
-HMR_GZ_HANDLER *hmr_gz_open(const char *filepath);
-void hmr_gz_close(HMR_GZ_HANDLER* gz_handler);
+HMR_GZ_HANDLER *hmr_gz_open_read(const char *filepath);
+void hmr_gz_close_read(HMR_GZ_HANDLER* gz_handler);
 
 #endif // HMR_GZ_H

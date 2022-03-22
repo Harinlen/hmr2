@@ -70,7 +70,7 @@ void hmr_fasta_read(const char *filepath, FASTA_PROC parser, void *user)
 {
     FASTA_PARSE args;
     TEXT_LINE_HANDLE line_handle;
-    if(!text_open_line(filepath, &line_handle))
+    if(!text_open_read_line(filepath, &line_handle))
     {
         time_error(-1, "Failed to read FASTA file %s", filepath);
     }
@@ -96,7 +96,7 @@ void hmr_fasta_read(const char *filepath, FASTA_PROC parser, void *user)
     //At the end of the line, yield the last result.
     parser(index, args.seq_name, args.seq_name_len, args.seq_data, args.seq_data_len, user);
     //Close the file.
-    text_close_line(&line_handle);
+    text_close_read_line(&line_handle);
 }
 
 std::string hmr_fasta_path_contig(const char* filepath)

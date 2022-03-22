@@ -1,3 +1,4 @@
+#include <cstring>
 #include <queue>
 #include <unordered_map>
 
@@ -300,8 +301,8 @@ HMR_PFOR_FUNC(mismatch_calc, HIC_DB* wide_db, HIC_DB* narrow_db, double percent,
 
 void mismatch_correct_open(const char* filepath, MISMATCH_CORRECTING* correct_file)
 {
-    //Try to open the file for written.
-    if (!bin_open(filepath, &correct_file->fp, "w"))
+    //Try to open the file for written, use binary type to open it.
+    if (!bin_open(filepath, &correct_file->fp, "wb"))
     {
         time_error(-1, "Failed to open corrected FASTA file: %s", filepath);
     }
@@ -340,6 +341,7 @@ void mismatch_corrected(int32_t index, char* seq_name, size_t seq_name_size, cha
 #endif
             fwrite(name_buf, 1, strlen(name_buf), fp);
             fwrite(seq + base, 1, s - base, fp);
+            fwrite("\n", 1, 1, fp);
             //Name: >name_s_e
             fwrite(">", 1, 1, fp);
             fwrite(seq_name, 1, seq_name_size, fp);
@@ -350,6 +352,7 @@ void mismatch_corrected(int32_t index, char* seq_name, size_t seq_name_size, cha
 #endif
             fwrite(name_buf, 1, strlen(name_buf), fp);
             fwrite(seq + s, 1, e - s, fp);
+            fwrite("\n", 1, 1, fp);
             //Update the base.
             base = e;
         }
@@ -366,6 +369,7 @@ void mismatch_corrected(int32_t index, char* seq_name, size_t seq_name_size, cha
 #endif
             fwrite(name_buf, 1, strlen(name_buf), fp);
             fwrite(seq + base, 1, seq_size - base, fp);
+            fwrite("\n", 1, 1, fp);
         }
     }
     //Recover the memory.

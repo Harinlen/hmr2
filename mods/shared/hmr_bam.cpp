@@ -1,3 +1,5 @@
+#include <cstring>
+
 #include "hmr_bgzf.h"
 #include "hmr_bin_queue.h"
 #include "hmr_ui.h"

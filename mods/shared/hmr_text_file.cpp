@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstdarg>
+#include <cstring>
 #include <cassert>
 
 #include "hmr_path.h"
@@ -178,14 +179,14 @@ ssize_t text_getline_gz(char** line, size_t* line_size, TEXT_LINE_BUF* line_buf,
     return -1;
 }
 
-std::string text_open(const char *filepath, void **handle)
+std::string text_open_read(const char *filepath, void **handle)
 {
     //Check the arguments.
     std::string suffix = path_suffix(filepath);
     if (suffix == ".gz")
     {
         //Use gzip module to open the file.
-        *handle = hmr_gz_open(filepath);
+        *handle = hmr_gz_open_read(filepath);
         return "gz";
     }
     //Open as a normal text file.
@@ -206,7 +207,7 @@ std::string text_open(const char *filepath, void **handle)
     return "txt";
 }
 
-bool text_open_line(const char* filepath, TEXT_LINE_HANDLE* handle)
+bool text_open_read_line(const char* filepath, TEXT_LINE_HANDLE* handle)
 {
     //Initial the buffer status.
     TEXT_LINE_BUF& buf = handle->buf;
@@ -214,7 +215,7 @@ bool text_open_line(const char* filepath, TEXT_LINE_HANDLE* handle)
     buf.offset = 0;
     buf.buf_size = 0;
     //Check the arguments.
-    std::string mode = text_open(filepath, &(handle->file_handle));
+    std::string mode = text_open_read(filepath, &(handle->file_handle));
     if (mode == "gz")
     {
         //Use gzip readline to read the file.
@@ -237,7 +238,7 @@ bool text_open_line(const char* filepath, TEXT_LINE_HANDLE* handle)
     return false;
 }
 
-void text_close_line(TEXT_LINE_HANDLE *handle)
+void text_close_read_line(TEXT_LINE_HANDLE *handle)
 {
     //Recover the buffer.
     TEXT_LINE_BUF& buf = handle->buf;
@@ -253,8 +254,28 @@ void text_close_line(TEXT_LINE_HANDLE *handle)
     }
     if (text_getline_gz == handle->parser)
     {
-        hmr_gz_close(static_cast<HMR_GZ_HANDLER*>(handle->file_handle));
+        hmr_gz_close_read(static_cast<HMR_GZ_HANDLER*>(handle->file_handle));
         return;
     }
     time_error(-1, "Unknown text getline handler to close.");
+}
+
+bool text_open_write(const char* filepath, FILE** handle)
+{
+    //Open as a normal text file.
+#ifdef _MSC_VER
+    FILE* text_file = NULL;
+    if (fopen_s(&text_file, filepath, "w") != 0)
+    {
+        return false;
+    }
+#else
+    FILE* text_file = fopen(filepath, "w");
+    if (text_file == NULL)
+    {
+        return false;
+    }
+#endif
+    * handle = text_file;
+    return true;
 }

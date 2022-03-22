@@ -36,8 +36,10 @@ typedef struct TEXT_LINE_HANDLE
     TEXT_LINE_BUF buf;
 } TEXT_LINE_HANDLE;
 
-std::string text_open(const char *filepath, void** handle);
-bool text_open_line(const char* filepath, TEXT_LINE_HANDLE *handle);
-void text_close_line(TEXT_LINE_HANDLE* handle);
+std::string text_open_read(const char *filepath, void** handle);
+bool text_open_read_line(const char* filepath, TEXT_LINE_HANDLE *handle);
+void text_close_read_line(TEXT_LINE_HANDLE* handle);
+
+bool text_open_write(const char* filepath, FILE** handle);
 
 #endif // HMR_TEXT_FILE_H
