@@ -1,3 +1,6 @@
+#include <algorithm>
+#include <cctype>
+#include <cstring>
 #include <unordered_map>
 
 #include "hmr_ui.h"
@@ -5,14 +8,44 @@
 
 #include "hmr_enzyme.h"
 
-std::unordered_map<std::string, const char*> known_enzyme_alias
+typedef struct ENZYME_SEQ
 {
-    {std::string("HINDIII"), "AAGCTT"},
-    {std::string("HIND3"), "AAGCTT"},
-    {std::string("NCOI"), "CCATGG"},
-    {std::string("DPN1"), "GATC"},
-    {std::string("MBOI"), "GATC"},
+    std::vector<std::string> names;
+    std::string sequence;
+} ENZYME_SEQ;
+
+static std::vector<ENZYME_SEQ> known_enzymes = {
+    { {"TaqI", "Taq1"}, "TCGA"},
+    { {"HaeIII", "Hae3"}, "GGCC"},
+    { {"DpnI", "Dpn1", "DpnII", "Dpn2", "MboI", "Mbo1", "Sau3AI"}, "GATC"},
+    { {"AluI", "Alu1"}, "AGCT"},
+    { {"NlaIII", "Nla3", "FaeI", "Fae1", "FatI", "Fat1", "Hin1II", "Hsp92II"}, "CATG"},
+    { {"HpaII", "Hpa2"}, "CCGG"},
+    { {"FokI", "Fok1"}, "GGATG"},
+    { {"AaaI", "Aaa1"}, "CGGCG"},
+    { {"HgaI", "Hga1"}, "GACGC"},
+    { {"BglII", "Bgl2"}, "AGATCT"},
+    { {"EcoRV", "EcoR5"}, "GATATC"},
+    { {"EcoRI", "EcoR1"}, "GAATTC"},
+    { {"BamHI", "BamH1"}, "GGATCC"},
+    { {"HindIII", "Hind3"}, "AAGCTT"},
+    { {"KpnI", "Kpn1"}, "GGTACC"},
+    { {"XbaI", "Xba1"}, "TCTAGA"},
+    { {"XhoI", "Xho1"}, "CTCGAG"},
+    { {"SacI", "Sac1"}, "GAGCTC"},
+    { {"PstI", "Pst1"}, "CTGCAG"},
+    { {"SmaI", "Sma1"}, "CCCGGG"},
+    { {"PvuII", "Pvu2"}, "CAGCTG"},
+    { {"SalI", "Sal1"}, "GTCGAC"},
+    { {"ScaI", "Sca1"}, "AGTACT"},
+    { {"SpeI", "Spe1"}, "ACTAGT"},
+    { {"SphI", "Sph1"}, "GCATGC"},
+    { {"StuI", "Stu1"}, "AGGCCT"},
+    { {"NdeI", "Nde1"}, "CATATG"},
+    { {"NotI", "Not1"}, "GCGGCCGC"},
 };
+
+static std::unordered_map<std::string, std::string> known_enzyme_alias;
 
 void hmr_enzyme_formalize(char* enzyme, const char** nuc_seq, int* nuc_seq_size)
 {
@@ -25,11 +58,26 @@ void hmr_enzyme_formalize(char* enzyme, const char** nuc_seq, int* nuc_seq_size)
             (*s) = 'A' + ((*s) - 'a');
         }
     }
+    //Check whether the alias dictionary is built.
+    if (known_enzyme_alias.empty())
+    {
+        //Build the dictionary.
+        for (ENZYME_SEQ& enzyme_info : known_enzymes)
+        {
+            for (auto& enzyme_name : enzyme_info.names)
+            {
+                //Convert the name into upper case.
+                std::transform(enzyme_name.begin(), enzyme_name.end(), enzyme_name.begin(), 
+                    [](char c) {return std::toupper(c); });
+                known_enzyme_alias.insert(std::make_pair(enzyme_name, enzyme_info.sequence));
+            }
+        }
+    }
     //Check whether it is an known alias name.
     auto known_finder = known_enzyme_alias.find(std::string(enzyme));
     if (known_finder != known_enzyme_alias.end())
     {
-        (*nuc_seq) = known_finder->second;
+        (*nuc_seq) = known_finder->second.data();
         (*nuc_seq_size) = static_cast<int>(strlen(*nuc_seq));
         return;
     }
@@ -44,56 +92,4 @@ void hmr_enzyme_formalize(char* enzyme, const char** nuc_seq, int* nuc_seq_size)
     }
     *nuc_seq = enzyme;
     *nuc_seq_size = static_cast<int>(length);
-}
-
-bool hmr_enzyme_load_range(const char* filepath, std::vector<CONTIG_ENZYME_RANGE>& contig_ranges)
-{
-    FILE* enzyme_range_file;
-    if (!bin_open(filepath, &enzyme_range_file, "rb"))
-    {
-        return false;
-    }
-    //Read the contig size.
-    size_t contig_size;
-    fread(&contig_size, sizeof(size_t), 1, enzyme_range_file);
-    contig_ranges = std::vector<CONTIG_ENZYME_RANGE>();
-    contig_ranges.reserve(contig_size);
-    for (size_t i = 0; i < contig_size; ++i)
-    {
-        CONTIG_ENZYME_RANGE range;
-        fread(&range.range_size, sizeof(size_t), 1, enzyme_range_file);
-        range.ranges = static_cast<ENZYME_RANGE*>(malloc(sizeof(ENZYME_RANGE) * range.range_size));
-        for (size_t j = 0; j < range.range_size; ++j)
-        {
-            fread(&range.ranges[j].start, sizeof(size_t), 1, enzyme_range_file);
-            fread(&range.ranges[j].end, sizeof(size_t), 1, enzyme_range_file);
-        }
-    }
-    fclose(enzyme_range_file);
-    return true;
-}
-
-bool hmr_enzyme_save_range(const char* filepath, const std::vector<CONTIG_ENZYME_RANGE>& enzyme_ranges)
-{
-    FILE* enzyme_range_file;
-    if (!bin_open(filepath, &enzyme_range_file, "wb"))
-    {
-        return false;
-    }
-    //Write the contig size.
-    size_t contig_sizes = enzyme_ranges.size();
-    fwrite(&contig_sizes, sizeof(size_t), 1, enzyme_range_file);
-    for (const auto& contig : enzyme_ranges)
-    {
-        //Write the contig information.
-        fwrite(&contig.range_size, sizeof(size_t), 1, enzyme_range_file);
-        for (size_t i=0; i<contig.range_size; ++i)
-        {
-            const auto& range = contig.ranges[i];
-            fwrite(&range.start, sizeof(size_t), 1, enzyme_range_file);
-            fwrite(&range.end, sizeof(size_t), 1, enzyme_range_file);
-        }
-    }
-    fclose(enzyme_range_file);
-    return true;
 }

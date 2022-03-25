@@ -48,7 +48,7 @@ std::string path_basename(const char* filepath, size_t length)
         return path_basename_core(filepath, strlen(filepath) - 3);
     }
     //Just get the basename.
-    return path_basename(filepath, length);
+    return path_basename_core(filepath, length);
 }
 
 bool path_can_read(const char* filepath)

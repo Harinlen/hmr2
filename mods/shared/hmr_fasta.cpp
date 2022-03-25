@@ -6,7 +6,6 @@
 
 #include "hmr_text_file.h"
 #include "hmr_bin_file.h"
-#include "hmr_path.h"
 #include "hmr_ui.h"
 
 #include "hmr_fasta.h"
@@ -97,57 +96,4 @@ void hmr_fasta_read(const char *filepath, FASTA_PROC parser, void *user)
     parser(index, args.seq_name, args.seq_name_len, args.seq_data, args.seq_data_len, user);
     //Close the file.
     text_close_read_line(&line_handle);
-}
-
-std::string hmr_fasta_path_contig(const char* filepath)
-{
-    return path_basename(filepath) + ".hmr_contig";
-}
-
-bool hmr_fasta_load_contig(const char* filepath, std::vector<HMR_CONTIG>& contigs)
-{
-    //Open the contig input file to read the data.
-    FILE* contig_file;
-    if (!bin_open(filepath, &contig_file, "rb"))
-    {
-        return false;
-    }
-    //Read the length of the contigs.
-    size_t contig_sizes = 0;
-    fread(&contig_sizes, sizeof(size_t), 1, contig_file);
-    contigs = std::vector<HMR_CONTIG>();
-    contigs.reserve(contig_sizes);
-    for (size_t i = 0; i < contig_sizes; ++i)
-    {
-        //Read the contig from the file.
-        HMR_CONTIG contig;
-        fread(&contig.seq_name_length, sizeof(size_t), 1, contig_file);
-        fread(&contig.seq_name, sizeof(char), contig.seq_name_length, contig_file);
-        fread(&contig.seq_length, sizeof(size_t), 1, contig_file);
-        contigs.push_back(contig);
-    }
-    fclose(contig_file);
-    return true;
-}
-
-bool hmr_fasta_save_contig(const char* filepath, const std::vector<HMR_CONTIG>& contigs)
-{
-    //Open the contig output file to write the data.
-    FILE* contig_file;
-    if (!bin_open(filepath, &contig_file, "wb"))
-    {
-        return false;
-    }
-    //Write the length of the contigs.
-    size_t contig_sizes = contigs.size();
-    fwrite(&contig_sizes, sizeof(size_t), 1, contig_file);
-    for (const auto& contig : contigs)
-    {
-        //Write the contig information.
-        fwrite(&contig.seq_name_length, sizeof(size_t), 1, contig_file);
-        fwrite(&contig.seq_name, sizeof(char), contig.seq_name_length, contig_file);
-        fwrite(&contig.seq_length, sizeof(size_t), 1, contig_file);
-    }
-    fclose(contig_file);
-    return true;
 }

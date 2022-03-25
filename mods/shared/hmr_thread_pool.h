@@ -1,6 +1,8 @@
 #ifndef HMR_THREAD_POOL_H
 #define HMR_THREAD_POOL_H
 
+#include <cstdio>
+
 #include <thread>
 #include <atomic>
 #include <functional>
@@ -16,22 +18,24 @@ namespace hmr
     class thread_pool_queue
     {
     public:
-        thread_pool_queue(const hmr_i32 size_limit) :
-            m_queue(new T[size_limit]),
-            m_queueSize(size_limit),
+        thread_pool_queue() :
+            m_finish(false),
+            m_items(NULL),
+            m_size(0),
             m_head(0),
             m_tail(0)
         {
         }
 
-        T& front()
+        ~thread_pool_queue()
         {
-            return m_queue[m_head];
+            delete[] m_items;
         }
 
-        const T& front() const
+        void initialize(hmr_i32 size)
         {
-            return m_queue[m_head];
+            m_items = new T[size];
+            m_size = size;
         }
 
         bool empty() const
@@ -41,59 +45,71 @@ namespace hmr
 
         bool full() const
         {
-            return (m_tail + 1 == m_head) || ((m_tail == 0) && (m_head == m_queueSize - 1));
+            return next_pos(m_tail) == m_head;
         }
 
-        void pop()
+        bool pop(T& item)
         {
-            //Only pop when 
-            if (empty())
+            std::unique_lock<std::mutex> lock(m_mutex);
+            m_popCv.wait(lock, [this] { return m_finish || (!empty()); });
+            //Copy the data to item.
+            if (!empty())
             {
-                throw std::runtime_error("Thread pool queue is empty to pop a task.");
+                item = std::move(m_items[m_head]);
+                m_head = next_pos(m_head);
+                //Notify the push conditional variable.
+                m_pushCv.notify_one();
+                return true;
             }
-            //Move the head to next position.
-            m_head = next_pos(m_head);
+            else
+            {
+                return false;
+            }
         }
 
-        void push(const T& element)
+        void push(const T& item)
         {
-            if (full())
-            {
-                throw std::runtime_error("Thread pool queue is already full to push a task.");
-            }
-            //Copy the data to the tail.
-            m_queue[m_tail] = element;
-            //Move the tail to next position.
+            std::unique_lock<std::mutex> lock(m_mutex);
+            m_pushCv.wait(lock, [this] {return !full(); });
+            //Copy the item data to the queue.
+            m_items[m_tail] = std::move(item);
             m_tail = next_pos(m_tail);
+            //Notify the pop conditional variable.
+            m_popCv.notify_one();
         }
 
-        ~thread_pool_queue()
+        void close()
         {
-            delete[] m_queue;
+            m_finish = true;
+            //Notify all the pop condition variable.
+            m_popCv.notify_all();
         }
 
     private:
-        inline size_t next_pos(size_t current)
+        inline const int32_t next_pos(int current_pos) const
         {
-            ++current;
-            return current >= m_queueSize ? 0 : current;
+            return (current_pos == m_size - 1) ? 0 : (current_pos + 1);
         }
-        T* m_queue;
-        size_t m_head, m_tail, m_queueSize;
+        bool m_finish;
+        T* m_items;
+        hmr_i32 m_size, m_head, m_tail;
+        mutable std::mutex m_mutex;
+        std::condition_variable m_pushCv, m_popCv;
     };
 
-    template <typename T>
+    template<typename T>
     class thread_pool
     {
     public:
-        thread_pool(void (*task)(const T&), const hmr_i32 queue_limit, const hmr_ui32 threads = std::thread::hardware_concurrency()) :
-            m_taskRequests(queue_limit),
+        thread_pool(void (*task)(const T &), const hmr_i32 &queue_depth, const hmr_ui32 &thread_count = std::thread::hardware_concurrency()):
             m_task(task),
-            m_threadCount(threads)
+            m_threads(new std::thread[thread_count]),
+            m_tasksTotal(0),
+            m_threadCount(thread_count)
         {
+            m_tasks.initialize(queue_depth);
             //Create threads.
-            m_threads = new std::thread[m_threadCount];
-            for (hmr_ui32 i = 0; i < m_threadCount; ++i)
+            for (hmr_ui32 i = 0; i < thread_count; i++)
             {
                 m_threads[i] = std::thread(&thread_pool::worker, this);
             }
@@ -101,91 +117,64 @@ namespace hmr
 
         ~thread_pool()
         {
-            //Wait for all the tasks complete.
+            //Wait for all the task finished.
             wait_for_tasks();
-            //Shutdown the pool.
+            //Close the thread pool.
             m_running = false;
-            //Destroy all the tasks.
-            for (hmr_ui32 i = 0; i < m_threadCount; ++i)
+            //Quit the queue.
+            m_tasks.close();
+            //Destory all the tasks.
+            for (hmr_ui32 i = 0; i < m_threadCount; i++)
             {
                 m_threads[i].join();
             }
-            delete[] m_threads;
         }
 
         void push_task(const T& task)
         {
-            //Wait for the queue is valid.
-            std::unique_lock<std::mutex> queue_lock(m_queueMutex);
-            m_queuePushCv.wait(queue_lock, [this]{ return !m_taskRequests.full(); });
-            //Push the data back.
-            ++m_tasksTotal;
-            m_taskRequests.push(task);
+            //Increase the task counter.
+            {
+                std::unique_lock<std::mutex> lock(m_taskMutex);
+                ++m_tasksTotal;
+            }
+            //Push the task to queue.
+            m_tasks.push(task);
         }
 
         void wait_for_tasks()
         {
-            while (true)
+            //Wait until the task total is finished.
+            while (m_tasksTotal)
             {
-                //When the tasks are completed, then done.
-                if (m_tasksTotal == 0)
-                {
-                    break;
-                }
-                //Hold and wait for a while.
-                handover_core();
+                //Sleep for a while.
+                std::this_thread::sleep_for(std::chrono::microseconds(1000));
             }
         }
 
     private:
-        bool assign_task(T& task)
-        {
-            const std::unique_lock<std::mutex> queue_lock(m_queueMutex);
-            //Try to pop the task.
-            if (m_taskRequests.empty())
-            {
-                return false;
-            }
-            //Assign the task data.
-            task = std::move(m_taskRequests.front());
-            m_taskRequests.pop();
-            m_queuePushCv.notify_one();
-            return true;
-        }
-
         void worker()
         {
-            //While the thread pool is running, try to fetch the task parameter from the queue.
             while (m_running)
             {
-                T task_parameter;
-                if (assign_task(task_parameter))
+                //Pop the task from the queue.
+                T param;
+                if (m_tasks.pop(param))
                 {
-                    m_task(task_parameter);
-                    --m_tasksTotal;
-                    m_queueEmpty.notify_one();
-                }
-                else
-                {
-                    handover_core();
+                    m_task(param);
+                    {
+                        std::unique_lock<std::mutex> lock(m_taskMutex);
+                        --m_tasksTotal;
+                    }
                 }
             }
         }
 
-        inline void handover_core()
-        {
-            //std::this_thread::yield();
-            std::this_thread::sleep_for(std::chrono::microseconds(1000));
-        }
-
-        mutable std::mutex m_queueMutex = {};
-        std::condition_variable m_queuePushCv, m_queueEmpty;
-
-        thread_pool_queue<T> m_taskRequests;
-        std::atomic<bool> m_running{ true };
-        std::atomic<hmr_ui32> m_tasksTotal{ 0 };
+        thread_pool_queue<T> m_tasks;
         void (*m_task)(const T&);
-        std::thread* m_threads;
+        std::unique_ptr<std::thread[]> m_threads;
+        std::atomic<bool> m_running{ true };
+        std::mutex m_taskMutex;
+        hmr_ui32 m_tasksTotal;
         hmr_ui32 m_threadCount;
     };
 }
