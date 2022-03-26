@@ -30,4 +30,12 @@ typedef struct HMR_EDGE_WEIGHT
 
 typedef std::vector<HMR_EDGE_WEIGHT> HMR_EDGE_WEIGHTS;
 
+typedef struct HMR_MAPPING
+{
+    int32_t refID;
+    int32_t pos;
+    int32_t next_refID;
+    int32_t next_pos;
+} HMR_MAPPING;
+
 #endif // HMR_CONTIG_GRAPH_TYPE_H

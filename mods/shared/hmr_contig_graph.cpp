@@ -8,7 +8,7 @@
 
 HMR_EDGE hmr_graph_edge(int32_t a, int32_t b)
 {
-    HMR_EDGE edge;
+    HMR_EDGE edge{};
     if (a < b)
     {
         edge.pos.start = a;

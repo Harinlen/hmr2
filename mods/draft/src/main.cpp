@@ -94,7 +94,7 @@ int main(int argc, char* argv[])
         }
         time_print("Writing reads summary information to %s", path_reads.data());
         //Loop and generate edge information.
-        MAPPING_DRAFT_USER mapping_user{ READ_RECORD(), contig_ids, contig_ranges, NULL, 0, RAW_EDGE_MAP(), reads_file, static_cast<uint8_t>(opts.mapq) };
+        MAPPING_DRAFT_USER mapping_user{ READ_RECORD(), contig_ids, contig_ranges, NULL, 0, RAW_EDGE_MAP(), reads_file, static_cast<uint8_t>(opts.mapq), NULL, 0, 0 };
         time_print("Constructing Hi-C reads relations...");
         for (char* mapping_path : opts.mappings)
         {
@@ -105,11 +105,17 @@ int main(int argc, char* argv[])
             delete[] mapping_user.contig_id_map;
         }
         time_print("Contig edges built from %zu file(s).", opts.mappings.size());
+        //Check reads file buffer is complete.
+        if (mapping_user.output_offset)
+        {
+            fwrite(mapping_user.output_buffer, mapping_user.output_offset, 1, reads_file);
+        }
         fclose(reads_file);
+        free(mapping_user.output_buffer);
         time_print("Reads summary information saved.");
         //Build the edge map.
         time_print("Calculating %zu edge weights...", mapping_user.edges.size());
-        edge_weights = mapping_draft_get_edge_weights(mapping_user.edges, contigs);
+        edge_weights = mapping_draft_get_edge_weights(mapping_user.edges, contig_ranges);
         time_print("Done");
     }
     //Dump the edge information into files.

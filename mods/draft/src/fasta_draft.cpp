@@ -64,8 +64,11 @@ void contig_range_search(const ENZYME_RANGE_SEARCH& param)
     const char* seq = param.seq;
     int32_t seq_size = param.seq_size, offset = 0;
     int32_t enzyme_pos = contig_draft_search(seq, seq_size, search);
+    size_t counter = 0;
     while (enzyme_pos != -1)
     {
+        //Increase the counter.
+        ++counter;
         //Record the enzyme position.
         int32_t range_start = offset + enzyme_pos, range_end = range_start;
         //Calculate the range end.
@@ -89,6 +92,7 @@ void contig_range_search(const ENZYME_RANGE_SEARCH& param)
     }
     //Convert the enzyme range to array.
     ENZYME_RANGES &chain_ranges = param.chain_node->data;
+    chain_ranges.counter = counter;
     chain_ranges.length = ranges.size();
     chain_ranges.ranges = static_cast<ENZYME_RANGE*>(malloc(sizeof(ENZYME_RANGE) * ranges.size()));
     if (!chain_ranges.ranges)

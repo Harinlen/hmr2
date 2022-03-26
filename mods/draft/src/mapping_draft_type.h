@@ -29,6 +29,8 @@ typedef struct MAPPING_DRAFT_USER
     RAW_EDGE_MAP edges;
     FILE* reads_file;
     uint8_t mapq;
+    char* output_buffer;
+    size_t output_offset, output_size;
 } MAPPING_DRAFT_USER;
 
 #endif // MAPPING_DRAFT_H
