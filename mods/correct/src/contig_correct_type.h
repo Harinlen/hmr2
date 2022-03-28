@@ -1,6 +1,8 @@
 #ifndef CONTIG_CORRECT_TYPE_H
 #define CONTIG_CORRECT_TYPE_H
 
+#include <cstdint>
+
 #include <unordered_map>
 
 typedef struct CONTIG_INFO
