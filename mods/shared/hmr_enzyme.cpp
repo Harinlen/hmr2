@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <string>
 #include <unordered_map>
 
 #include "hmr_ui.h"
