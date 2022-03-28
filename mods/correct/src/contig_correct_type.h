@@ -2,6 +2,7 @@
 #define CONTIG_CORRECT_TYPE_H
 
 #include <cstdint>
+#include <string>
 
 #include <unordered_map>
 

@@ -1,3 +1,5 @@
+#include <cstdlib>
+
 #include "hmr_ui.h"
 
 #include "contig_correct_type.h"
