@@ -24,7 +24,7 @@ typedef struct ENZYME_RANGE_SEARCH
     ENZYME_SEARCH* search;
     ENZYME_RANGE_CHAIN* chain_node;
     char* seq;
-    int32_t seq_size;
+    int32_t seq_size, range;
 } ENZYME_RANGE_SEARCH;
 
 void contig_range_search(const ENZYME_RANGE_SEARCH& param);
@@ -33,6 +33,7 @@ typedef hmr::thread_pool<ENZYME_RANGE_SEARCH> RANGE_SEARCH_POOL;
 
 typedef struct DRAFT_NODES_USER
 {
+    const int32_t range;
     HMR_CONTIGS* nodes;
     ENZYME_SEARCH* search;
     RANGE_SEARCH_POOL* pool;

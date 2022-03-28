@@ -16,4 +16,7 @@ std::string hmr_graph_path_reads(const char* prefix);
 std::string hmr_graph_path_edge(const char* prefix);
 bool hmr_graph_save_edge(const char* filepath, const HMR_EDGE_WEIGHTS& edges);
 
+std::string hmr_graph_path_invalid(const char* prefix);
+bool hmr_graph_save_invalid(const char* filepath, const HMR_CONTIG_INVALID_IDS& ids);
+
 #endif // HMR_CONTIG_GRAPH_H

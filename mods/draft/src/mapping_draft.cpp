@@ -22,7 +22,18 @@ void mapping_draft_contig(uint32_t name_length, char* name, uint32_t length, voi
     MAPPING_DRAFT_USER* mapping_user = reinterpret_cast<MAPPING_DRAFT_USER*>(user);
     //Find the name in the contig mapping.
     auto name_finder = mapping_user->contig_ids.find(std::string(name, name_length));
-    mapping_user->contig_id_map[mapping_user->contig_idx] = name_finder == mapping_user->contig_ids.end() ? -1 : name_finder->second;
+    int32_t contig_id = (name_finder == mapping_user->contig_ids.end()) ? -1 : name_finder->second;
+    //Check the contig id.
+    if (contig_id != -1)
+    {
+        //If the the contig id is in invalid set, then set the id to be -1.
+        if (mapping_user->invalid_ids.find(contig_id) != mapping_user->invalid_ids.end())
+        {
+            contig_id = -1;
+        }
+    }
+    //Record the contig id at the map.
+    mapping_user->contig_id_map[mapping_user->contig_idx] = contig_id;
     ++mapping_user->contig_idx;
 }
 

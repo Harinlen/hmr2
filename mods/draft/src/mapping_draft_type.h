@@ -22,7 +22,8 @@ typedef std::unordered_map<uint64_t, MAPPING_READ> READ_RECORD;
 typedef struct MAPPING_DRAFT_USER
 {
     READ_RECORD records;
-    const CONTIG_ID_MAP &contig_ids;
+    const CONTIG_ID_MAP& contig_ids;
+    const HMR_CONTIG_INVALID_SET& invalid_ids;
     ENZYME_RANGES* contig_ranges;
     int32_t *contig_id_map;
     int32_t contig_idx;

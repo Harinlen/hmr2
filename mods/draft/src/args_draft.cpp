@@ -12,5 +12,7 @@ HMR_ARG_PARSER args_parser = {
     { {"-o", "--output"}, "OUTPUT", "Output graph prefix", LAMBDA_PARSE_ARG {opts.output = arg[0]; }},
     { {"-e", "--enzyme"}, "ENZYME", "Enzyme to find in the sequence", LAMBDA_PARSE_ARG {opts.enzyme = arg[0];}},
     { {"-q", "--mapq"}, "MAPQ", "MAPQ of mapping lower bound (default: 1)", LAMBDA_PARSE_ARG {opts.mapq = atoi(arg[0]); }},
+    { {"-r", "--range"}, "ENZYME_RANGE", "The enzyme position range size (default: 1000)", LAMBDA_PARSE_ARG {opts.range = atoi(arg[0]) >> 1; }},
+    { {"-c", "--count"}, "ENZYME_COUNT", "The minimum enzyme count (default: 0)", LAMBDA_PARSE_ARG {opts.min_enzymes = atoi(arg[0]); }},
     { {"-t", "--threads"}, "THREAS", "Number of threads (default: 1)", LAMBDA_PARSE_ARG { opts.threads = atoi(arg[0]); }},
 };

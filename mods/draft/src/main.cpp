@@ -30,18 +30,21 @@ int main(int argc, char* argv[])
     //Convert the enzyme into sequence.
     hmr_enzyme_formalize(opts.enzyme, &opts.enzyme_nuc, &opts.enzyme_nuc_length);
     time_print("Execution configuration:");
-    time_print("\tMinimum Map Quality: %d", opts.mapq);
+    time_print("\tMinimum map quality: %d", opts.mapq);
     time_print("\tRestriction enzyme: %s", opts.enzyme_nuc);
+    time_print("\tMinimum restriction enzyme count: %d", opts.min_enzymes);
+    time_print("\tHalf of enzyme range: %d", opts.range);
     time_print("\tThreads: %d", opts.threads);
     //Load the FASTA sequence and find the enzyme.
     HMR_CONTIGS contigs;
+    HMR_CONTIG_INVALID_SET invalid_id_set;
     ENZYME_RANGES* contig_ranges;
     {
         //Prepare the enzyme for searching.
         ENZYME_SEARCH search;
         contig_draft_search_start(opts.enzyme_nuc, opts.enzyme_nuc_length, search);
         //Prepare the search user data.
-        DRAFT_NODES_USER node_user{ &contigs, &search, NULL, NULL, NULL };
+        DRAFT_NODES_USER node_user{ opts.range, &contigs, &search, NULL, NULL, NULL };
         {
             //Prepare the thread pool for searching.
             RANGE_SEARCH_POOL search_pool(contig_range_search, opts.threads * 32, opts.threads);
@@ -71,6 +74,26 @@ int main(int argc, char* argv[])
             hmr_graph_save_contig(path_contig.data(), contigs);
             time_print("Done");
         }
+        //Checking which contig is valid, if invalid, generate the invalid list.
+        time_print("Checking invalid contig(s)...");
+        HMR_CONTIG_INVALID_IDS invalid_ids;
+        for (int32_t i = 0; i < range_index; ++i)
+        {
+            if (contig_ranges[i].counter < opts.min_enzymes)
+            {
+                invalid_ids.push_back(i);
+            }
+        }
+        time_print("%zu invalid contig(s) detected.", invalid_ids.size());
+        if (!invalid_ids.empty())
+        {
+            std::string path_invalid = hmr_graph_path_invalid(opts.output);
+            time_print("Save invalid contig indices to %s", path_invalid.data());
+            hmr_graph_save_invalid(path_invalid.data(), invalid_ids);
+            time_print("Done");
+            //Construct the invalid set.
+            invalid_id_set = HMR_CONTIG_INVALID_SET(invalid_ids.begin(), invalid_ids.end());
+        }
     }
     //Build the contig mapping.
     std::vector<HMR_EDGE_WEIGHT> edge_weights;
@@ -94,7 +117,7 @@ int main(int argc, char* argv[])
         }
         time_print("Writing reads summary information to %s", path_reads.data());
         //Loop and generate edge information.
-        MAPPING_DRAFT_USER mapping_user{ READ_RECORD(), contig_ids, contig_ranges, NULL, 0, RAW_EDGE_MAP(), reads_file, static_cast<uint8_t>(opts.mapq), NULL, 0, 0 };
+        MAPPING_DRAFT_USER mapping_user{ READ_RECORD(), contig_ids, invalid_id_set, contig_ranges, NULL, 0, RAW_EDGE_MAP(), reads_file, static_cast<uint8_t>(opts.mapq), NULL, 0, 0 };
         time_print("Constructing Hi-C reads relations...");
         for (char* mapping_path : opts.mappings)
         {

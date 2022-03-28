@@ -46,9 +46,10 @@ bool hmr_graph_load_contig(const char* filepath, HMR_CONTIGS& contigs)
         //Read the contig from the file.
         HMR_CONTIG contig;
         fread(&contig.name_size, sizeof(int32_t), 1, contig_file);
-        contig.name = static_cast<char*>(malloc(contig.name_size));
+        contig.name = static_cast<char*>(malloc(contig.name_size + 1));
         assert(contig.name);
         fread(contig.name, sizeof(char), contig.name_size, contig_file);
+        contig.name[contig.name_size] = 0;
         fread(&contig.length, sizeof(int32_t), 1, contig_file);
         contigs.push_back(contig);
     }
@@ -106,5 +107,29 @@ bool hmr_graph_save_edge(const char* filepath, const HMR_EDGE_WEIGHTS& edges)
         fwrite(&edge, sizeof(HMR_EDGE_WEIGHT), 1, edge_file);
     }
     fclose(edge_file);
+    return true;
+}
+
+std::string hmr_graph_path_invalid(const char* prefix)
+{
+    return std::string(prefix) + ".hmr_invalid";
+}
+
+bool hmr_graph_save_invalid(const char* filepath, const HMR_CONTIG_INVALID_IDS& ids)
+{
+    FILE* ids_file;
+    if (!bin_open(filepath, &ids_file, "wb"))
+    {
+        time_error(-1, "Failed to save invalid contig ids to file %s", filepath);
+        return false;
+    }
+    //Write the number of invalid ids.
+    size_t id_sizes = ids.size();
+    fwrite(&id_sizes, sizeof(size_t), 1, ids_file);
+    for (const int32_t& id : ids)
+    {
+        fwrite(&id, sizeof(int32_t), 1, ids_file);
+    }
+    fclose(ids_file);
     return true;
 }

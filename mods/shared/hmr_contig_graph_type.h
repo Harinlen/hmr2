@@ -3,6 +3,8 @@
 
 #include <cstdint>
 #include <vector>
+#include <list>
+#include <unordered_set>
 
 typedef struct HMR_CONTIG
 {
@@ -37,5 +39,8 @@ typedef struct HMR_MAPPING
     int32_t next_refID;
     int32_t next_pos;
 } HMR_MAPPING;
+
+typedef std::list<int32_t> HMR_CONTIG_INVALID_IDS;
+typedef std::unordered_set<int32_t> HMR_CONTIG_INVALID_SET;
 
 #endif // HMR_CONTIG_GRAPH_TYPE_H
